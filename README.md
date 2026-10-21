@@ -14,4 +14,4 @@ StreamHub is built using a modern microservices architecture following **Domain-
 
 - **Team Name:** Team 007
 - **Course:** Software Architecture II
-- **Members:** Juan Jose Rua David, Juan José Alcaraz Guisao, Brayan Alexis Correa Torres, Luis Alfredo Taborda Lopez, Kevin Cardenas, Rivillas
+- **Members:** Juan Jose Rua David, Juan José Alcaraz Guisao, Brayan Alexis Correa Torres, Luis Alfredo Taborda Lopez, Kevin Cardenas Rivillas
