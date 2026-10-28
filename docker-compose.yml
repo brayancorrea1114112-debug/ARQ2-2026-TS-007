@@ -99,6 +99,20 @@ services:
       - "5672:5672"
       - "15672:15672"
 
+  recommendation-worker:
+    container_name: recommendation-worker-arquitectura2
+    build: ./services/recommendation-worker
+    depends_on:
+      - rabbitmq
+      - redis
+    environment:
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: userArquitectura2
+      SPRING_RABBITMQ_PASSWORD: "Punto123969**-+"
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+
   # observability
   otel-collector:
     container_name: otel-collector-arquitectura2
