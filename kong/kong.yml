@@ -1,0 +1,44 @@
+_format_version: "3.0"
+_transform: true
+
+
+services:
+  - name: auth-service
+    url: http://auth-service:8080
+    routes:
+      - name: auth-login
+        paths:
+          - /api/v1/auth/login
+        methods:
+          - POST
+        strip_path: false
+        plugins:
+          - name: rate-limiting
+            config:
+              minute: 20
+              policy: local
+              limit_by: ip
+
+      - name: auth-profiles
+        paths:
+          - /api/v1/profiles
+        strip_path: false
+        plugins:
+          - name: jwt
+            config:
+              claims_to_verify:
+                - exp
+
+consumers:
+  - username: streamhub-auth
+    jwt_secrets:
+      - key: streamhub-auth
+        algorithm: HS256
+        secret: 334e3bb6052951659389173c0c1ce51837f88acee20ef0d10619f4a7ae738aa8
+
+plugins:
+  - name: correlation-id
+    config:
+      header_name: X-Correlation-ID
+      generator: uuid
+      echo_downstream: true
