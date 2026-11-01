@@ -20,3 +20,6 @@ Option 2 - Use Redis to store the precomputed Home view and the current playback
 
 ## Final Justification
 This is the standard pattern for VOD platforms that need to handle intensive read workloads with minimal latency during peak traffic hours.
+
+## Note (amended by ADR 006)
+Redis remains the read model. After ADR 006, the durable source of truth for playback progress, ratings and raw events is the Cassandra Interactions DB; the Redis keys described here are disposable and can be rebuilt from Cassandra.

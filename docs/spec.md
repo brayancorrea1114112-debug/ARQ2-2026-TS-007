@@ -35,7 +35,8 @@ The solution has two rules:
 | **Catalog & Home Service** | Container + Redis + MongoDB | Serves the Home screen from Redis. Falls back to MongoDB when the view is not in the cache. Exposes catalog metadata. |
 | **Telemetry Service** | Container + RabbitMQ | Receives playback pings and likes, validates them, publishes them as events and replies `202 Accepted` immediately. It does not write to any database. |
 | **Message Broker** | RabbitMQ | Decouples ingestion from processing. Holds the telemetry and interaction queues and their dead-letter queues. |
-| **Recommendation Worker** | Container | Consumes the queues. Updates "Continue Watching" in Redis, updates the profile preferences and refreshes the precomputed Home view. |
+| **Recommendation Worker** | Container | Consumes the queues. Persists progress, ratings and raw events in the Interactions DB (Cassandra) and then projects the new state into Redis: "Continue Watching", profile preferences and the precomputed Home view. |
+| **Interactions DB** | Cassandra | Durable, write-optimized source of truth for playback progress, ratings and raw interaction events. The Redis read model can be fully rebuilt from it. |
 | **Observability Stack** | OpenTelemetry, Jaeger, Prometheus, Loki, Grafana | Collects traces, metrics and logs to locate latency in the initial requests. |
 
 ### 1.3 Cross-cutting rules
@@ -146,7 +147,22 @@ Precomputed JSON document. TTL: 15 minutes. It is rebuilt by the Recommendation 
 
 ### 2.7 ProfilePreferences (Redis, key `prefs:{profile_id}`)
 
-Preference vector (genre weights) recalculated by the Recommendation Worker from ratings and watch history. It is the input to the `recommended` list of the HomeView.
+Preference vector recalculated by the Recommendation Worker from ratings and watch history. It is the input to the `recommended` list of the HomeView. It is a disposable read model: the durable copy lives in Cassandra (2.8).
+
+### 2.8 Interactions DB (Cassandra, keyspace `streamhub`)
+
+Durable source of truth defined in ADR 006. All tables are query-driven.
+
+| Table | Primary key | Columns | Purpose |
+|---|---|---|---|
+| `events_by_id` | `event_id` | `profile_id`, `content_id`, `event_type`, `payload`, `received_at` | Idempotency and raw event log. A plain insert is idempotent because `event_id` is the primary key. |
+| `event_history_by_profile` | `((profile_id), event_timestamp DESC, event_id)` | `event_type`, `content_id`, `episode_id`, `progress_seconds`, `rating` | Queryable history used to recalculate preferences and recommendations. Has a configurable TTL. |
+| `progress_by_profile` | `((profile_id), content_id)` | `episode_id`, `progress_seconds`, `last_event_timestamp` | Current playback state. |
+| `ratings_by_profile` | `((profile_id), content_id)` | `rating`, `updated_at` | Latest rating per title. |
+| `prefs_by_profile` | `((profile_id), content_id)` | `weight`, `updated_at` | Durable preference vector. |
+| `profile_registry` | `profile_id` | `last_event_at` | Enumerates profiles so a full rebuild is possible. |
+
+Writes to `progress_by_profile`, `ratings_by_profile`, `prefs_by_profile` and `event_history_by_profile` use `USING TIMESTAMP` derived from the event timestamp, so the newest event wins even when events arrive out of order or are redelivered. Redis is projected only after the Cassandra write succeeds.
 
 ---
 
@@ -424,9 +440,9 @@ Payload schema:
 
 Delivery guarantees:
 
-- **Delivery:** at-least-once. The producer uses publisher confirms. The consumer uses manual acknowledgment after processing.
-- **Idempotency:** the worker stores `event_id` in Redis with a 24-hour TTL. A duplicate is acknowledged and ignored.
-- **Ordering:** global ordering is not guaranteed. The worker updates the progress only if `timestamp` is newer than `last_event_timestamp` for that profile and title, so an old ping never overwrites a newer one.
+- **Delivery:** at-least-once. The producer uses publisher confirms. The consumer uses broker-managed acknowledgment after processing, with automatic retries before the message is rejected to the DLQ.
+- **Idempotency:** the worker inserts into the Cassandra table `events_by_id`, whose primary key is `event_id`. A duplicate is a no-op at the durable level; Redis is not the idempotency store.
+- **Ordering:** global ordering is not guaranteed. Progress writes use `USING TIMESTAMP` with the event timestamp, so an old ping never overwrites a newer one, even if it arrives later or is redelivered.
 - **Retries:** up to 3 attempts with exponential backoff (1 s, 5 s, 30 s). After that the message goes to `telemetry.progress.dlq` for inspection.
 
 ### 4.2 interaction.rating.added
@@ -462,17 +478,23 @@ Payload schema:
 
 Delivery guarantees:
 
-- **Delivery:** at-least-once, with publisher confirms and manual acknowledgment.
-- **Idempotency:** deduplicated by `event_id`, same as telemetry.
-- **Ordering:** for the same `profile_id` and `content_id`, the rating with the newest `timestamp` wins.
+- **Delivery:** at-least-once, with publisher confirms and broker-managed acknowledgment plus retries.
+- **Idempotency:** deduplicated by `event_id` through Cassandra, same as telemetry.
+- **Ordering:** for the same `profile_id` and `content_id`, the rating with the newest `timestamp` wins (`USING TIMESTAMP` in Cassandra).
 - **Retries:** same policy as telemetry, then `interactions.rating.dlq`.
 
 ### 4.3 What the worker does after each event
 
 | Event | Worker action |
 |---|---|
-| `telemetry.ping.received` | Update `progress:{profile_id}:{content_id}` in Redis and refresh the `continue_watching` section of `home:{profile_id}` |
-| `interaction.rating.added` | Update `prefs:{profile_id}`, recalculate the recommendations and refresh `home:{profile_id}` |
+| `telemetry.ping.received` | Persist the raw event and the new progress in Cassandra, then update `progress:{profile_id}:{content_id}` in Redis and refresh the `continue_watching` section of `home:{profile_id}` |
+| `interaction.rating.added` | Persist the raw event, the rating and the preference in Cassandra, then update `prefs:{profile_id}`, recalculate the recommendations and refresh `home:{profile_id}` |
+
+The worker persists first and projects second. If Cassandra is unavailable the message is retried and the read model is never advanced ahead of the durable state.
+
+### 4.4 Read-model rebuild
+
+The Redis read model is disposable. `POST /admin/rebuild` and `POST /admin/rebuild/{profile_id}` rebuild it from Cassandra, recalculating progress, preferences and recommendations. The endpoints require the `X-Admin-Token` header and are not routed through Kong. The rebuild can also run on startup with `REBUILD_ON_STARTUP=true` (disabled by default).
 
 ---
 
@@ -498,8 +520,10 @@ Delivery guarantees:
 ### Feature 3: Massive, decoupled telemetry ingestion
 
 - **WHEN** a client sends `POST /api/v1/telemetry/ping` with a valid body **THEN** the Telemetry Service publishes `telemetry.ping.received` and returns `202` without waiting for any worker or database.
-- **WHEN** the same `event_id` is received twice **THEN** the worker processes it once.
-- **WHEN** a ping with an older `timestamp` is processed after a newer one **THEN** the stored progress does not change.
+- **WHEN** the same `event_id` is received twice **THEN** the worker processes it once, both in Cassandra (primary key `event_id`) and in Redis.
+- **WHEN** a ping with an older `timestamp` is processed after a newer one **THEN** the stored progress does not change, even at the Cassandra level.
+- **WHEN** the worker processes an event **THEN** it persists the state in Cassandra before projecting it into Redis.
+- **WHEN** Redis loses a key or the cache is evicted **THEN** the read model can be rebuilt from Cassandra with `POST /admin/rebuild`.
 - **WHEN** the worker fails to process a message 3 times **THEN** the message is moved to `telemetry.progress.dlq`.
 - **WHEN** RabbitMQ does not confirm the publication **THEN** the service returns `503` and the client retries with the same `event_id`.
 - **WHEN** the Recommendation Worker is down **THEN** the API keeps returning `202` and the messages wait in the queue until the worker is back.
@@ -525,6 +549,7 @@ Delivery guarantees:
 
 These points are not defined yet and will be settled with an ADR or in this file before the implementation:
 
-- **Durability of progress and ratings:** the C4 diagram keeps them in Redis. Redis will run with AOF persistence, and ratings may also be stored in MongoDB. This will be confirmed in Wave 2.
-- **Programming language of each service:** to be decided in Wave 2.
+- **Durability of progress and ratings (resolved):** the durable source of truth is the Interactions DB (Cassandra) defined in ADR 006 and section 2.8. Redis keeps only a disposable read model that is rebuilt from Cassandra; ratings are no longer stored in MongoDB.
+- **Programming language of each service:** to be decided in Wave 2. The services implemented so far use Java 21 with Spring Boot.
 - **Rate limit values and token lifetime:** the values shown here (3600 s token) are the initial proposal.
+- **Suggestion engine:** the default strategy uses persisted interaction affinity (likes, dislikes and watch history) because the catalog is owned by another module. Genre-based weighting can replace it through the `RecommendationStrategy` port.

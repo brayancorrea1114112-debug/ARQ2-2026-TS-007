@@ -75,6 +75,23 @@ services:
       - cassandradata:/var/lib/cassandra
     ports:
       - "9042:9042"
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'describe keyspaces'"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 40s
+
+  # Creates the keyspace and tables before the workers start.
+  cassandra-init:
+    container_name: cassandra-init-arquitectura2
+    image: cassandra:4.1
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    volumes:
+      - ./infra/cassandra/init.cql:/init.cql:ro
+    command: ["cqlsh", "cassandra", "-f", "/init.cql"]
 
   # cache
   redis:
@@ -103,8 +120,12 @@ services:
     container_name: recommendation-worker-arquitectura2
     build: ./services/recommendation-worker
     depends_on:
-      - rabbitmq
-      - redis
+      rabbitmq:
+        condition: service_started
+      redis:
+        condition: service_started
+      cassandra-init:
+        condition: service_completed_successfully
     environment:
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_RABBITMQ_PORT: 5672
@@ -112,6 +133,14 @@ services:
       SPRING_RABBITMQ_PASSWORD: "Punto123969**-+"
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
+      CASSANDRA_HOST: cassandra
+      CASSANDRA_PORT: 9042
+      CASSANDRA_DATACENTER: datacenter1
+      CASSANDRA_KEYSPACE: streamhub
+      REBUILD_ON_STARTUP: "false"
+      ADMIN_TOKEN: "streamhub-admin-token"
+    ports:
+      - "8082:8080"
 
   # observability
   otel-collector:

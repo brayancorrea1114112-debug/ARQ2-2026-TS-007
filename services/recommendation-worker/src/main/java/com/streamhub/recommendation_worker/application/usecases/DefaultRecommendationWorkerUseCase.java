@@ -1,105 +1,116 @@
 package com.streamhub.recommendation_worker.application.usecases;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.streamhub.recommendation_worker.application.ports.in.RecommendationWorkerUseCase;
+import com.streamhub.recommendation_worker.application.ports.out.EventStorePort;
+import com.streamhub.recommendation_worker.application.ports.out.PreferenceStorePort;
+import com.streamhub.recommendation_worker.application.ports.out.ProgressStorePort;
+import com.streamhub.recommendation_worker.application.ports.out.RatingStorePort;
+import com.streamhub.recommendation_worker.domain.model.HistoryEntry;
 import com.streamhub.recommendation_worker.domain.model.PingReceivedEvent;
+import com.streamhub.recommendation_worker.domain.model.ProgressSnapshot;
 import com.streamhub.recommendation_worker.domain.model.RatingAddedEvent;
-import org.springframework.data.redis.core.RedisTemplate;
+import com.streamhub.recommendation_worker.domain.model.RatingSnapshot;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
 import java.time.Instant;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
+/**
+ * Persists every event in Cassandra (durable source of truth) and only then projects it to Redis
+ * (disposable read model). Every write is idempotent and time-ordered, so a redelivery is safe.
+ */
 @Service
 public class DefaultRecommendationWorkerUseCase implements RecommendationWorkerUseCase {
 
-    private static final Duration EVENT_TTL = Duration.ofHours(24);
-    private static final Duration HOME_TTL = Duration.ofMinutes(15);
+    static final String PING_EVENT_TYPE = "telemetry.ping.received";
+    static final String RATING_EVENT_TYPE = "interaction.rating.added";
 
-    private final RedisTemplate<String, Object> redisTemplate;
+    private static final String LIKE = "LIKE";
+    private static final String DISLIKE = "DISLIKE";
 
-    public DefaultRecommendationWorkerUseCase(RedisTemplate<String, Object> redisTemplate) {
-        this.redisTemplate = redisTemplate;
+    private final ProgressStorePort progressStore;
+    private final RatingStorePort ratingStore;
+    private final PreferenceStorePort preferenceStore;
+    private final EventStorePort eventStore;
+    private final HomeProjection projection;
+    private final ObjectMapper objectMapper;
+
+    public DefaultRecommendationWorkerUseCase(ProgressStorePort progressStore,
+                                              RatingStorePort ratingStore,
+                                              PreferenceStorePort preferenceStore,
+                                              EventStorePort eventStore,
+                                              HomeProjection projection,
+                                              ObjectMapper objectMapper) {
+        this.progressStore = progressStore;
+        this.ratingStore = ratingStore;
+        this.preferenceStore = preferenceStore;
+        this.eventStore = eventStore;
+        this.projection = projection;
+        this.objectMapper = objectMapper;
     }
 
     @Override
     public void handlePing(PingReceivedEvent event) {
-        if (event == null || event.eventId() == null || event.profileId() == null || event.contentId() == null) {
-            throw new IllegalArgumentException("PingReceivedEvent payload is incomplete");
-        }
+        validatePing(event);
+        Instant receivedAt = Instant.now();
 
-        if (!isNewEvent(event.eventId())) {
-            return;
-        }
+        eventStore.recordEvent(event.eventId(), event.profileId(), event.contentId(),
+                PING_EVENT_TYPE, serialize(event), receivedAt);
+        eventStore.recordHistory(new HistoryEntry(event.profileId(), event.timestamp(), event.eventId(),
+                PING_EVENT_TYPE, event.contentId(), event.episodeId(), event.progressSeconds(), null));
+        eventStore.registerProfileActivity(event.profileId(), event.timestamp());
 
-        String progressKey = "progress:" + event.profileId() + ":" + event.contentId();
-        Map<Object, Object> current = redisTemplate.opsForHash().entries(progressKey);
-        Object lastTimestampValue = current.get("last_event_timestamp");
+        progressStore.saveProgress(new ProgressSnapshot(event.profileId(), event.contentId(),
+                event.episodeId(), event.progressSeconds(), event.timestamp()));
 
-        if (lastTimestampValue != null && Instant.parse(lastTimestampValue.toString()).isAfter(event.timestamp())) {
-            markAsProcessed(event.eventId());
-            return;
-        }
-
-        Map<String, Object> state = new HashMap<>();
-        state.put("episode_id", event.episodeId());
-        state.put("progress_seconds", event.progressSeconds());
-        state.put("last_event_timestamp", event.timestamp().toString());
-        redisTemplate.opsForHash().putAll(progressKey, state);
-        redisTemplate.expire(progressKey, Duration.ofHours(24));
-
-        Map<String, Object> continueWatching = new HashMap<>();
-        continueWatching.put("content_id", event.contentId());
-        continueWatching.put("episode_id", event.episodeId());
-        continueWatching.put("progress_seconds", event.progressSeconds());
-        redisTemplate.opsForList().rightPush("home:" + event.profileId() + ":continue_watching", continueWatching);
-        refreshHomeView(event.profileId(), List.of(continueWatching));
-        markAsProcessed(event.eventId());
+        projection.projectProgress(event.profileId());
     }
 
     @Override
     public void handleRating(RatingAddedEvent event) {
-        if (event == null || event.eventId() == null || event.profileId() == null || event.contentId() == null) {
+        validateRating(event);
+        Instant receivedAt = Instant.now();
+
+        eventStore.recordEvent(event.eventId(), event.profileId(), event.contentId(),
+                RATING_EVENT_TYPE, serialize(event), receivedAt);
+        eventStore.recordHistory(new HistoryEntry(event.profileId(), event.timestamp(), event.eventId(),
+                RATING_EVENT_TYPE, event.contentId(), null, null, event.rating()));
+        eventStore.registerProfileActivity(event.profileId(), event.timestamp());
+
+        ratingStore.saveRating(new RatingSnapshot(event.profileId(), event.contentId(),
+                event.rating(), event.timestamp()));
+        preferenceStore.savePreference(event.profileId(), event.contentId(),
+                LIKE.equals(event.rating()) ? 1.0 : -1.0, event.timestamp());
+
+        projection.projectInteractions(event.profileId());
+    }
+
+    private static void validatePing(PingReceivedEvent event) {
+        if (event == null || event.eventId() == null || event.profileId() == null
+                || event.contentId() == null || event.timestamp() == null) {
+            throw new IllegalArgumentException("PingReceivedEvent payload is incomplete");
+        }
+        if (event.progressSeconds() == null || event.progressSeconds() < 0) {
+            throw new IllegalArgumentException("progress_seconds must be 0 or greater");
+        }
+    }
+
+    private static void validateRating(RatingAddedEvent event) {
+        if (event == null || event.eventId() == null || event.profileId() == null
+                || event.contentId() == null || event.timestamp() == null) {
             throw new IllegalArgumentException("RatingAddedEvent payload is incomplete");
         }
-
-        if (!isNewEvent(event.eventId())) {
-            return;
+        if (!LIKE.equals(event.rating()) && !DISLIKE.equals(event.rating())) {
+            throw new IllegalArgumentException("rating must be LIKE or DISLIKE");
         }
+    }
 
-        String preferencesKey = "prefs:" + event.profileId();
-        Map<Object, Object> existing = redisTemplate.opsForHash().entries(preferencesKey);
-        Map<String, Object> next = new HashMap<>();
-        for (Map.Entry<Object, Object> entry : existing.entrySet()) {
-            next.put(String.valueOf(entry.getKey()), entry.getValue());
+    private String serialize(Object event) {
+        try {
+            return objectMapper.writeValueAsString(event);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Could not serialize the event payload", exception);
         }
-        next.put(event.contentId(), event.rating());
-        redisTemplate.opsForHash().putAll(preferencesKey, next);
-        redisTemplate.expire(preferencesKey, Duration.ofDays(7));
-
-        List<String> recommendations = List.of("mov_77", "mov_91", event.contentId());
-        refreshHomeView(event.profileId(), recommendations);
-        markAsProcessed(event.eventId());
-    }
-
-    private boolean isNewEvent(String eventId) {
-        Boolean isNew = redisTemplate.opsForValue().setIfAbsent("processed:" + eventId, "1", EVENT_TTL);
-        return Boolean.TRUE.equals(isNew);
-    }
-
-    private void markAsProcessed(String eventId) {
-        redisTemplate.opsForValue().set("processed:" + eventId, "1", EVENT_TTL);
-    }
-
-    private void refreshHomeView(String profileId, List<?> continueWatching) {
-        Map<String, Object> homeView = new HashMap<>();
-        homeView.put("profile_id", profileId);
-        homeView.put("generated_at", Instant.now().toString());
-        homeView.put("continue_watching", continueWatching);
-        homeView.put("recommended", List.of("mov_77", "mov_91", "mov_8832"));
-        homeView.put("categories", List.of(Map.of("name", "Trending", "title_ids", List.of("mov_1", "mov_2", "mov_77", "mov_91"))));
-        redisTemplate.opsForValue().set("home:" + profileId, homeView, HOME_TTL);
     }
 }

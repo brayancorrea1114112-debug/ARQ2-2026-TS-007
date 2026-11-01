@@ -20,3 +20,6 @@ Option 2 - Asynchronous ingestion using RabbitMQ.
 
 ## Final Justification
 It allows the system to absorb continuous write peaks from millions of active players without impacting the availability or responsiveness of the core browsing system.
+
+## Note (complemented by ADR 006)
+The broker remains the transport. Consumers persist each event in the Cassandra Interactions DB before projecting it into Redis, so no interaction data depends only on the cache.

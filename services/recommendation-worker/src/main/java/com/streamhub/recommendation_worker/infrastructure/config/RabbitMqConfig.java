@@ -1,10 +1,15 @@
 package com.streamhub.recommendation_worker.infrastructure.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.core.TopicExchange;
+import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
+import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -18,6 +23,15 @@ public class RabbitMqConfig {
     public static final String PING_DLQ = "telemetry.progress.dlq";
     public static final String RATING_QUEUE = "interactions.rating.queue";
     public static final String RATING_DLQ = "interactions.rating.dlq";
+
+    /** Events use the snake_case contract defined in spec.md (event_id, profile_id, ...). */
+    @Bean
+    MessageConverter jsonMessageConverter(ObjectMapper objectMapper) {
+        ObjectMapper eventMapper = objectMapper.copy()
+                .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
+                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        return new Jackson2JsonMessageConverter(eventMapper);
+    }
 
     @Bean
     TopicExchange telemetryExchange() {

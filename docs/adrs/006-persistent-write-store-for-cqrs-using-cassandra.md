@@ -20,3 +20,13 @@ Option 2 - Introduce an Interactions DB based on a write-optimized NoSQL databas
 
 ## Final Justification
 Persisting interaction events in a write-optimized store gives StreamHub a durable and rebuildable foundation for its read models, turning the current cache-aside and event-driven design into a complete CQRS architecture. It protects user data against cache loss and keeps the high-volume write workload separated from the catalog read path, which preserves the low-latency Home screen delivery defined in ADR 001 and the decoupled ingestion defined in ADR 002.
+
+## Implementation Notes
+The decision is implemented by the `recommendation-worker` (a single worker consumes both queues, matching the container list in `spec.md`):
+
+- Keyspace `streamhub` and tables defined in `infra/cassandra/init.cql`; schema is created by the `cassandra-init` Compose service before the worker starts.
+- Hexagonal ports `ProgressStorePort`, `RatingStorePort`, `PreferenceStorePort` and `EventStorePort`, implemented by Cassandra adapters.
+- Writes use `USING TIMESTAMP` derived from the event timestamp, so redelivered or out-of-order events are last-write-wins without read-before-write. `events_by_id` is a plain insert keyed by `event_id` and is therefore idempotent.
+- The worker persists to Cassandra first and projects to Redis afterwards, so the read model never advances ahead of the durable state.
+- The read model is rebuilt with `POST /admin/rebuild[/{profile_id}]` (header `X-Admin-Token`), or on startup with `REBUILD_ON_STARTUP=true`.
+- Raw event history has a configurable TTL (`CASSANDRA_HISTORY_TTL_DAYS`, 90 days by default).
