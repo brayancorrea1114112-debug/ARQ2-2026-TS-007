@@ -50,6 +50,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
     ports:
       - "${AUTH_SERVICE_PORT:-8081}:8080"
 
@@ -168,6 +170,8 @@ services:
         condition: service_started
       cassandra-init:
         condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
     environment:
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_RABBITMQ_PORT: 5672
@@ -192,6 +196,8 @@ services:
         condition: service_started
       redis:
         condition: service_started
+      otel-collector:
+        condition: service_started
     environment:
       # Values come from .env (see .env.example), never from this file.
       JWT_SECRET: ${JWT_SECRET:-}
@@ -207,6 +213,8 @@ services:
     depends_on:
       rabbitmq:
         condition: service_started
+      otel-collector:
+        condition: service_started
     environment:
       JWT_SECRET: ${JWT_SECRET:-}
       SPRING_RABBITMQ_HOST: rabbitmq
@@ -221,6 +229,11 @@ services:
   otel-collector:
     container_name: otel-collector-arquitectura2
     image: otel/opentelemetry-collector-contrib:0.104.0
+    command: ["--config", "/etc/otelcol/config.yml"]
+    volumes:
+      - ./otel-collector/otel-collector.yml:/etc/otelcol/config.yml:ro
+    depends_on:
+      - jaeger
     ports:
       - "4317:4317"
       - "4318:4318"
