@@ -201,6 +201,22 @@ services:
     ports:
       - "8083:8080"
 
+  telemetry-service:
+    container_name: telemetry-service-arquitectura2
+    build: ./services/telemetry-service
+    depends_on:
+      rabbitmq:
+        condition: service_started
+    environment:
+      JWT_SECRET: ${JWT_SECRET:-}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: userArquitectura2
+      SPRING_RABBITMQ_PASSWORD: "Punto123969**-+"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+    ports:
+      - "${TELEMETRY_SERVICE_PORT:-8084}:8080"
+
   # observability
   otel-collector:
     container_name: otel-collector-arquitectura2

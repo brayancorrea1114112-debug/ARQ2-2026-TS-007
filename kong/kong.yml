@@ -52,6 +52,45 @@ services:
               policy: local
               limit_by: ip
 
+  - name: telemetry-service
+    url: http://telemetry-service:8080
+    routes:
+      - name: telemetry-ping
+        paths:
+          - /api/v1/telemetry/ping
+        methods:
+          - POST
+          - OPTIONS
+        strip_path: false
+        plugins:
+          - name: jwt
+            config:
+              claims_to_verify:
+                - exp
+          - name: rate-limiting
+            config:
+              minute: 600
+              policy: local
+              limit_by: ip
+
+      - name: interactions-like
+        paths:
+          - /api/v1/interactions/like
+        methods:
+          - POST
+          - OPTIONS
+        strip_path: false
+        plugins:
+          - name: jwt
+            config:
+              claims_to_verify:
+                - exp
+          - name: rate-limiting
+            config:
+              minute: 60
+              policy: local
+              limit_by: ip
+
 consumers:
   - username: streamhub-auth
     jwt_secrets:
