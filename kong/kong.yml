@@ -11,6 +11,7 @@ services:
           - /api/v1/auth/login
         methods:
           - POST
+          - OPTIONS
         strip_path: false
         plugins:
           - name: rate-limiting
@@ -37,6 +38,7 @@ services:
           - /api/v1/home
         methods:
           - GET
+          - OPTIONS
         strip_path: false
         plugins:
           - name: jwt
@@ -63,3 +65,22 @@ plugins:
       header_name: X-Correlation-ID
       generator: uuid
       echo_downstream: true
+  # The browser calls Kong from http://localhost:3001 (Next.js dev server).
+  - name: cors
+    config:
+      origins:
+        - http://localhost:3001
+        - http://127.0.0.1:3001
+      methods:
+        - GET
+        - POST
+        - OPTIONS
+      headers:
+        - Authorization
+        - Content-Type
+        - X-Correlation-ID
+      exposed_headers:
+        - X-Correlation-ID
+        - Retry-After
+      credentials: false
+      max_age: 3600

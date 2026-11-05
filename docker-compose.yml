@@ -51,7 +51,7 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "8081:8080"
+      - "${AUTH_SERVICE_PORT:-8081}:8080"
 
   mongo:
     container_name: mongo-arquitectura2
@@ -63,6 +63,36 @@ services:
       - mongodata:/data/db
     ports:
       - "27017:27017"
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping').ok\" | grep 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # Development catalog for the Home fallback. Idempotent, runs once and exits.
+  mongo-seed:
+    container_name: mongo-seed-arquitectura2
+    image: mongo:7
+    depends_on:
+      mongo:
+        condition: service_healthy
+    volumes:
+      - ./infra/mongo/seed.js:/seed.js:ro
+    command:
+      [
+        "mongosh",
+        "mongodb://mongo:27017/streamhub",
+        "--username",
+        "userArquitectura2",
+        "--password",
+        "Punto123969**-+",
+        "--authenticationDatabase",
+        "admin",
+        "--quiet",
+        "/seed.js",
+      ]
+    restart: "no"
 
   cassandra:
     container_name: cassandra-arquitectura2
@@ -102,6 +132,18 @@ services:
       - redisdata:/data
     ports:
       - "6379:6379"
+
+  # Development Home views so the catalog service can answer from cache. Idempotent.
+  redis-seed:
+    container_name: redis-seed-arquitectura2
+    image: redis:7
+    depends_on:
+      redis:
+        condition: service_started
+    volumes:
+      - ./infra/redis/seed.sh:/seed.sh:ro
+    command: ["sh", "/seed.sh"]
+    restart: "no"
 
   # mensajes
   rabbitmq:
