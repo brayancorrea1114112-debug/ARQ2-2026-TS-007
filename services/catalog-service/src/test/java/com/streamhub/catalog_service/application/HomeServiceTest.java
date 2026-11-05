@@ -1,0 +1,210 @@
+package com.streamhub.catalog_service.application;
+
+import com.streamhub.catalog_service.application.FakePorts.InMemoryHomeViews;
+import com.streamhub.catalog_service.application.FakePorts.InMemoryTitles;
+import com.streamhub.catalog_service.application.usecases.HomeService;
+import com.streamhub.catalog_service.domain.exception.ProfileNotSelectedException;
+import com.streamhub.catalog_service.domain.exception.ServiceUnavailableException;
+import com.streamhub.catalog_service.domain.model.CategoryRef;
+import com.streamhub.catalog_service.domain.model.ContinueWatchingItem;
+import com.streamhub.catalog_service.domain.model.HomeScreen;
+import com.streamhub.catalog_service.domain.model.HomeSource;
+import com.streamhub.catalog_service.domain.model.HomeView;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
+
+import static com.streamhub.catalog_service.application.FakePorts.summary;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/** Scenarios of spec.md, Feature 2: Home screen in milliseconds from cache. */
+class HomeServiceTest {
+
+    private static final String PROFILE = "prof_9921";
+    private static final Instant NOW = Instant.parse("2026-10-06T20:00:00Z");
+    private static final Instant GENERATED_AT = Instant.parse("2026-10-06T19:58:00Z");
+
+    private InMemoryHomeViews homeViews;
+    private InMemoryTitles titles;
+    private HomeService service;
+
+    @BeforeEach
+    void setUp() {
+        homeViews = new InMemoryHomeViews();
+        titles = new InMemoryTitles();
+        service = new HomeService(homeViews, titles, Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    @Test
+    void aStoredViewIsAnsweredWithNamesAndPostersAndMarkedAsCache() {
+        titles.add("mov_1", "mov_2", "mov_77");
+        ContinueWatchingItem watching = new ContinueWatchingItem("mov_8832", "ep_102", 1420);
+        homeViews.store(new HomeView(PROFILE, GENERATED_AT,
+                List.of(new CategoryRef("Trending", List.of("mov_1", "mov_2"))),
+                List.of(watching), List.of("mov_77")));
+
+        HomeScreen screen = service.getHome(PROFILE);
+
+        assertEquals(HomeSource.CACHE, screen.source());
+        assertEquals(GENERATED_AT, screen.generatedAt());
+        assertEquals(1, screen.categories().size());
+        assertEquals("Trending", screen.categories().get(0).name());
+        assertEquals(List.of(summary("mov_1"), summary("mov_2")), screen.categories().get(0).titles());
+        assertEquals(List.of(summary("mov_77")), screen.recommended());
+        assertEquals(List.of(watching), screen.continueWatching());
+        assertEquals(0, titles.findTrendingCalls);
+    }
+
+    @Test
+    void aMissingViewIsAnsweredWithTheTrendingTitlesAsFallback() {
+        titles.trending("mov_1", "mov_2");
+
+        HomeScreen screen = service.getHome(PROFILE);
+
+        assertEquals(HomeSource.FALLBACK, screen.source());
+        assertEquals(PROFILE, screen.profileId());
+        assertEquals(NOW, screen.generatedAt());
+        assertEquals(1, screen.categories().size());
+        assertEquals("Trending", screen.categories().get(0).name());
+        assertEquals(List.of(summary("mov_1"), summary("mov_2")), screen.categories().get(0).titles());
+        assertTrue(screen.continueWatching().isEmpty());
+        assertTrue(screen.recommended().isEmpty());
+    }
+
+    @Test
+    void aCacheThatCannotBeReachedIsTreatedLikeAMissingView() {
+        homeViews.down = true;
+        titles.trending("mov_1");
+
+        HomeScreen screen = service.getHome(PROFILE);
+
+        assertEquals(HomeSource.FALLBACK, screen.source());
+        assertEquals(List.of(summary("mov_1")), screen.categories().get(0).titles());
+    }
+
+    @Test
+    void whenTheCacheAndTheCatalogAreBothDownTheServiceIsUnavailable() {
+        homeViews.down = true;
+        titles.down = true;
+
+        ServiceUnavailableException error =
+                assertThrows(ServiceUnavailableException.class, () -> service.getHome(PROFILE));
+
+        assertEquals("SERVICE_UNAVAILABLE", error.getCode());
+    }
+
+    @Test
+    void aStoredViewCannotBeCompletedWhenTheCatalogIsDown() {
+        homeViews.store(new HomeView(PROFILE, GENERATED_AT,
+                List.of(new CategoryRef("Trending", List.of("mov_1"))), List.of(), List.of()));
+        titles.down = true;
+
+        assertThrows(ServiceUnavailableException.class, () -> service.getHome(PROFILE));
+    }
+
+    @Test
+    void titlesThatNoLongerExistAreLeftOutKeepingTheOrderOfTheRest() {
+        titles.add("mov_1", "mov_3");
+        homeViews.store(new HomeView(PROFILE, GENERATED_AT,
+                List.of(new CategoryRef("Trending", List.of("mov_1", "mov_2", "mov_3"))), List.of(), List.of()));
+
+        HomeScreen screen = service.getHome(PROFILE);
+
+        assertEquals(List.of(summary("mov_1"), summary("mov_3")), screen.categories().get(0).titles());
+    }
+
+    @Test
+    void theCatalogIsAskedOnceAndWithoutRepeatedIds() {
+        titles.add("mov_1", "mov_2");
+        homeViews.store(new HomeView(PROFILE, GENERATED_AT,
+                List.of(new CategoryRef("A", List.of("mov_1", "mov_2")), new CategoryRef("B", List.of("mov_2"))),
+                List.of(), List.of("mov_1")));
+
+        service.getHome(PROFILE);
+
+        assertEquals(1, titles.findByIdsCalls);
+        assertEquals(List.of("mov_1", "mov_2"), titles.lastRequestedIds);
+    }
+
+    @Test
+    void aViewWithoutTitleIdsDoesNotQueryTheCatalog() {
+        homeViews.store(new HomeView(PROFILE, GENERATED_AT, List.of(), List.of(), List.of()));
+
+        HomeScreen screen = service.getHome(PROFILE);
+
+        assertEquals(HomeSource.CACHE, screen.source());
+        assertEquals(0, titles.findByIdsCalls);
+    }
+
+    @Test
+    void aViewWithoutCategoriesIsCompletedWithTheTrendingTitlesAndStaysMarkedAsCache() {
+        titles.trending("mov_1", "mov_2");
+        homeViews.store(new HomeView(PROFILE, GENERATED_AT, List.of(), List.of(), List.of()));
+
+        HomeScreen screen = service.getHome(PROFILE);
+
+        assertEquals(HomeSource.CACHE, screen.source());
+        assertEquals(GENERATED_AT, screen.generatedAt());
+        assertEquals(1, screen.categories().size());
+        assertEquals("Trending", screen.categories().get(0).name());
+        assertEquals(List.of(summary("mov_1"), summary("mov_2")), screen.categories().get(0).titles());
+    }
+
+    @Test
+    void completingTheTrendingCategoryKeepsTheContinueWatchingAndTheRecommended() {
+        titles.add("mov_77");
+        titles.trending("mov_1");
+        ContinueWatchingItem watching = new ContinueWatchingItem("mov_8832", "ep_102", 1420);
+        homeViews.store(new HomeView(PROFILE, GENERATED_AT, List.of(), List.of(watching), List.of("mov_77")));
+
+        HomeScreen screen = service.getHome(PROFILE);
+
+        assertEquals(List.of(watching), screen.continueWatching());
+        assertEquals(List.of(summary("mov_77")), screen.recommended());
+        assertEquals(List.of(summary("mov_1")), screen.categories().get(0).titles());
+    }
+
+    @Test
+    void aViewWithCategoriesDoesNotAskForTheTrendingTitles() {
+        titles.add("mov_1");
+        homeViews.store(new HomeView(PROFILE, GENERATED_AT,
+                List.of(new CategoryRef("Picked for you", List.of("mov_1"))), List.of(), List.of()));
+
+        HomeScreen screen = service.getHome(PROFILE);
+
+        assertEquals(List.of("Picked for you"), screen.categories().stream().map(c -> c.name()).toList());
+        assertEquals(0, titles.findTrendingCalls);
+    }
+
+    @Test
+    void aViewWithoutCategoriesCannotBeCompletedWhenTheCatalogIsDown() {
+        homeViews.store(new HomeView(PROFILE, GENERATED_AT, List.of(), List.of(), List.of()));
+        titles.down = true;
+
+        assertThrows(ServiceUnavailableException.class, () -> service.getHome(PROFILE));
+    }
+
+    @Test
+    void anEmptyTrendingCategoryIsNotAdded() {
+        homeViews.store(new HomeView(PROFILE, GENERATED_AT, List.of(), List.of(), List.of()));
+
+        HomeScreen screen = service.getHome(PROFILE);
+
+        assertTrue(screen.categories().isEmpty());
+    }
+
+    @Test
+    void withoutAnActiveProfileTheHomeIsRefused() {
+        ProfileNotSelectedException blank =
+                assertThrows(ProfileNotSelectedException.class, () -> service.getHome(" "));
+        assertThrows(ProfileNotSelectedException.class, () -> service.getHome(null));
+
+        assertEquals("PROFILE_NOT_SELECTED", blank.getCode());
+    }
+}

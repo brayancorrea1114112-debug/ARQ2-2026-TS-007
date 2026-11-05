@@ -29,6 +29,27 @@ services:
               claims_to_verify:
                 - exp
 
+  - name: catalog-service
+    url: http://catalog-service:8080
+    routes:
+      - name: catalog-home
+        paths:
+          - /api/v1/home
+        methods:
+          - GET
+        strip_path: false
+        plugins:
+          - name: jwt
+            config:
+              claims_to_verify:
+                - exp
+          # The limit values are a proposal: spec.md 6 leaves them open. Kong adds Retry-After to the 429.
+          - name: rate-limiting
+            config:
+              minute: 120
+              policy: local
+              limit_by: ip
+
 consumers:
   - username: streamhub-auth
     jwt_secrets:

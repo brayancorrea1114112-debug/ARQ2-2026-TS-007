@@ -142,6 +142,23 @@ services:
     ports:
       - "8082:8080"
 
+  catalog-service:
+    container_name: catalog-service-arquitectura2
+    build: ./services/catalog-service
+    depends_on:
+      mongo:
+        condition: service_started
+      redis:
+        condition: service_started
+    environment:
+      # Values come from .env (see .env.example), never from this file.
+      JWT_SECRET: ${JWT_SECRET:-}
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/streamhub}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "8083:8080"
+
   # observability
   otel-collector:
     container_name: otel-collector-arquitectura2
