@@ -23,3 +23,14 @@ It allows the system to absorb continuous write peaks from millions of active pl
 
 ## Note (complemented by ADR 006)
 The broker remains the transport. Consumers persist each event in the Cassandra Interactions DB before projecting it into Redis, so no interaction data depends only on the cache.
+
+## Implementation Notes
+
+The producer is the `telemetry-service`:
+
+- `POST /api/v1/telemetry/ping` and `POST /api/v1/interactions/like` verify the profile JWT and validate the `spec.md` body.
+- It publishes `telemetry.ping.received` to `streamhub.telemetry` and `interaction.rating.added` to `streamhub.interactions`.
+- It declares the same topic exchanges, durable queues, dead-letter queues and bindings as the recommendation worker, so messages wait when the worker is down.
+- Publisher confirms are mandatory: the endpoint answers `202` only after the broker acknowledges, otherwise `503` and the client retries with the same `event_id`.
+- Messages are persistent and carry `messageId=event_id`, `X-Correlation-ID` and the W3C `traceparent`.
+- Kong exposes both routes with JWT validation and rate limiting.
