@@ -23,12 +23,12 @@ export default defineConfig({
   webServer: {
     command: realBackend ? "npm run dev" : "npm run dev:e2e",
     url: `http://localhost:${port}`,
-    reuseExistingServer: !process.env.CI,
+    // In real mode a fresh server is required so the no-mocks environment applies.
+    reuseExistingServer: !process.env.CI && !realBackend,
     timeout: 120_000,
     env: realBackend
       ? {
-          NEXT_PUBLIC_USE_MOCKS: "true",
-          NEXT_PUBLIC_MOCK_SCOPE: "missing",
+          NEXT_PUBLIC_USE_MOCKS: "false",
         }
       : {
           NEXT_PUBLIC_USE_MOCKS: "true",
