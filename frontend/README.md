@@ -19,11 +19,10 @@ npm run dev
 Open <http://localhost:3001>. Port 3000 is used by Grafana in the root
 `docker-compose.yml`.
 
-The backend is not required in `all` mock mode. To use the real `auth-service`
-and `catalog-service`, start the stack from the repository root with
-`docker compose up` (Kong is exposed on `http://localhost:8000`) and keep
-`NEXT_PUBLIC_MOCK_SCOPE=missing`, which only mocks the services that do not exist
-yet.
+By default the client uses the real services through Kong
+(`NEXT_PUBLIC_USE_MOCKS=false`). Start the backend stack from the repository root
+first. For an offline demo, set `NEXT_PUBLIC_USE_MOCKS=true` and
+`NEXT_PUBLIC_MOCK_SCOPE=all`.
 
 ## Environment
 
@@ -31,23 +30,22 @@ Create `frontend/.env.local` from `.env.example`:
 
 ```dotenv
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
-NEXT_PUBLIC_USE_MOCKS=true
-NEXT_PUBLIC_MOCK_SCOPE=missing
+NEXT_PUBLIC_USE_MOCKS=false
+NEXT_PUBLIC_MOCK_SCOPE=all
 ```
 
 | Variable | Description |
 |---|---|
 | `NEXT_PUBLIC_API_BASE_URL` | Kong proxy base URL. Always ends at `/api/v1` |
-| `NEXT_PUBLIC_USE_MOCKS` | Starts the MSW worker. `false` sends everything to Kong |
-| `NEXT_PUBLIC_MOCK_SCOPE` | `all`: mock every endpoint (offline/E2E). `missing`: mock only telemetry and interactions |
+| `NEXT_PUBLIC_USE_MOCKS` | `false` sends every request to Kong. `true` starts the MSW worker |
+| `NEXT_PUBLIC_MOCK_SCOPE` | Only used with mocks: `all` mocks every endpoint (offline/E2E) |
 
 | Mode | Login / profiles | Home | Ping / like |
 |---|---|---|---|
-| `all` | mock | mock | mock |
-| `missing` | Kong → auth-service | Kong → catalog-service | mock |
-| `USE_MOCKS=false` | Kong → auth-service | Kong → catalog-service | Kong (fails until the Telemetry Service exists) |
+| Real (`USE_MOCKS=false`) | Kong → auth-service | Kong → catalog-service | Kong → telemetry-service |
+| Offline (`USE_MOCKS=true`, `all`) | mock | mock | mock |
 
-## Demo accounts (mocks)
+## Demo accounts (mocks and auth-service seed)
 
 | Account | Password | Profiles |
 |---|---|---|
@@ -81,14 +79,23 @@ NEXT_PUBLIC_MOCK_SCOPE=missing
 - Like/Dislike with `202 Accepted` feedback.
 - Standard error envelope with `correlation_id` shown in the UI.
 - Route guards for account and profile tokens.
+- Jaeger traces for the gateway and services (`Kong → telemetry-service →
+  recommendation-worker` for a ping).
 
 The real `catalog-service` currently returns title summaries (`content_id`,
 `name`, `poster`). The UI tolerates missing `synopsis`, `duration_seconds`,
 `age_rating` and `genres`; it shows the poster gradient and hides empty metadata
 until a title-detail endpoint exists.
 
-### E2E against the real backend
+### E2E
 
+The default suite runs with MSW on port 3101:
+
+```bash
+npm run test:e2e
+```
+
+The real-backend suite runs on port 3001 with `NEXT_PUBLIC_USE_MOCKS=false`.
 With the Docker stack running and no dev server on port 3001:
 
 ```powershell
@@ -100,7 +107,7 @@ E2E_REAL=1 npm run test:e2e
 ```
 
 Next.js allows only one dev server per project directory, so stop your local
-`npm run dev` before running the E2E suite.
+`npm run dev` before running the suite.
 
 ## Architecture boundary
 
@@ -135,20 +142,23 @@ src/
 
 ## Integration with the real services
 
-The Catalog & Home Service is already wired: `GET /api/v1/home` is routed by Kong
-and the browser is allowed by the Kong `cors` plugin. Use
-`NEXT_PUBLIC_MOCK_SCOPE=missing` to connect auth and home to the real backend.
+All services are wired: auth, catalog, telemetry and interactions are routed by
+Kong, CORS is allowed for `http://localhost:3001`, and the Home response follows
+`docs/spec.md` section 3.4. Keep `NEXT_PUBLIC_USE_MOCKS=false` (the default).
 
 For the local stack:
 
 1. Create the root `.env` from `.env.example` with `JWT_SECRET` and `MONGODB_URI`.
-2. `docker compose up -d postgres auth-service mongo mongo-seed redis redis-seed catalog-service kong`.
-3. Keep `NEXT_PUBLIC_MOCK_SCOPE=missing` in `frontend/.env.local`.
+2. Start the services:
+   ```bash
+   docker compose up -d --build postgres auth-service mongo mongo-seed \
+     redis redis-seed catalog-service telemetry-service \
+     rabbitmq cassandra cassandra-init recommendation-worker \
+     otel-collector jaeger kong
+   ```
+3. Keep `NEXT_PUBLIC_USE_MOCKS=false` in `frontend/.env.local`.
+4. Open Jaeger at <http://localhost:16686> to inspect the traces.
 
-When the Telemetry Service exists:
-
-1. Add `telemetry` and `interactions` routes to `kong/kong.yml`.
-2. Set `NEXT_PUBLIC_USE_MOCKS=false` to remove the last mocks.
-3. Keep the Home response shape from `docs/spec.md` section 3.4. The client also
-   tolerates the raw Redis projection (`recommended` as ids, `title_ids`) through
-   `normalizeHome`, but the service should return the documented object shape.
+The client also tolerates the raw Redis projection (`recommended` as ids,
+`title_ids`) through `normalizeHome`, but the service returns the documented
+object shape.
