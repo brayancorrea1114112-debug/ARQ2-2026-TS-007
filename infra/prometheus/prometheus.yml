@@ -1,0 +1,32 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Spring Boot services: Micrometer metrics exposed by Actuator.
+  # The "application" label lets the dashboards group by service.
+  - job_name: spring-services
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["auth-service:8080"]
+        labels:
+          application: auth-service
+      - targets: ["catalog-service:8080"]
+        labels:
+          application: catalog-service
+      - targets: ["recommendation-worker:8080"]
+        labels:
+          application: recommendation-worker
+
+  # Kong prometheus plugin (see kong/kong.yml), served by the Admin API.
+  - job_name: kong
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["kong:8001"]
+        labels:
+          application: kong
+

@@ -12,6 +12,9 @@ services:
       KONG_ADMIN_ACCESS_LOG: /dev/stdout
       KONG_ADMIN_ERROR_LOG: /dev/stderr
       KONG_DECLARATIVE_CONFIG: /kong/kong.yml
+      # Tracing for the opentelemetry plugin (see kong/kong.yml)
+      KONG_TRACING_INSTRUMENTATIONS: all
+      KONG_TRACING_SAMPLING_RATE: "1.0"
     ports:
       - "8000:8000"
       - "8001:8001"
@@ -31,7 +34,7 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U userArquitectura2 -d auth"]
+      test: [ "CMD-SHELL", "pg_isready -U userArquitectura2 -d auth" ]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -47,6 +50,7 @@ services:
       JWT_SECRET: 334e3bb6052951659389173c0c1ce51837f88acee20ef0d10619f4a7ae738aa8
       SEED_ENABLED: "true"
       SEED_PASSWORD: S3cret-pass
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
     depends_on:
       postgres:
         condition: service_healthy
@@ -76,7 +80,7 @@ services:
     ports:
       - "9042:9042"
     healthcheck:
-      test: ["CMD-SHELL", "cqlsh -e 'describe keyspaces'"]
+      test: [ "CMD-SHELL", "cqlsh -e 'describe keyspaces'" ]
       interval: 10s
       timeout: 10s
       retries: 20
@@ -91,13 +95,13 @@ services:
         condition: service_healthy
     volumes:
       - ./infra/cassandra/init.cql:/init.cql:ro
-    command: ["cqlsh", "cassandra", "-f", "/init.cql"]
+    command: [ "cqlsh", "cassandra", "-f", "/init.cql" ]
 
   # cache
   redis:
     container_name: redis-arquitectura2
     image: redis:7
-    command: ["redis-server", "--appendonly", "yes"]
+    command: [ "redis-server", "--appendonly", "yes" ]
     volumes:
       - redisdata:/data
     ports:
@@ -139,6 +143,7 @@ services:
       CASSANDRA_KEYSPACE: streamhub
       REBUILD_ON_STARTUP: "false"
       ADMIN_TOKEN: "streamhub-admin-token"
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
     ports:
       - "8082:8080"
 
@@ -156,13 +161,20 @@ services:
       MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/streamhub}
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
     ports:
       - "8083:8080"
 
   # observability
+  # Traces: Kong + services --OTLP--> otel-collector --> jaeger
   otel-collector:
     container_name: otel-collector-arquitectura2
     image: otel/opentelemetry-collector-contrib:0.104.0
+    command: [ "--config=/etc/otelcol-contrib/config.yaml" ]
+    volumes:
+      - ./infra/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    depends_on:
+      - jaeger
     ports:
       - "4317:4317"
       - "4318:4318"
@@ -175,14 +187,17 @@ services:
     ports:
       - "16686:16686"
 
+  # Metrics: prometheus scrapes /actuator/prometheus of the services and Kong's /metrics
   prometheus:
     container_name: prometheus-arquitectura2
     image: prom/prometheus:v2.53.0
     volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheusdata:/prometheus
     ports:
       - "9090:9090"
 
+  # Logs: alloy reads the logs of every container and pushes them to loki
   loki:
     container_name: loki-arquitectura2
     image: grafana/loki:3.1.0
@@ -191,6 +206,19 @@ services:
     ports:
       - "3100:3100"
 
+  alloy:
+    container_name: alloy-arquitectura2
+    image: grafana/alloy:v1.3.1
+    command: [ "run", "--server.http.listen-addr=0.0.0.0:12345", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy" ]
+    volumes:
+      - ./infra/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+    ports:
+      - "12345:12345"
+
+  # Datasources and dashboards are provisioned from infra/grafana
   grafana:
     container_name: grafana-arquitectura2
     image: grafana/grafana:11.1.0
@@ -199,6 +227,12 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: "Punto123969**-+"
     volumes:
       - grafanadata:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/etc/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+      - loki
+      - jaeger
     ports:
       - "3000:3000"
 

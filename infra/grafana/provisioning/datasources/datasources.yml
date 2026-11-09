@@ -1,0 +1,43 @@
+# Datasources created automatically when Grafana starts (no manual setup in the UI).
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      # Spring Boot prints [traceId-spanId] in every log line: link it to the trace in Jaeger.
+      derivedFields:
+        - name: TraceID
+          matcherRegex: '\[([0-9a-f]{32})-[0-9a-f]{16}\]'
+          datasourceUid: jaeger
+          url: '$${__value.raw}'
+
+  - name: Jaeger
+    uid: jaeger
+    type: jaeger
+    access: proxy
+    url: http://jaeger:16686
+    editable: false
+    jsonData:
+      # From a span, open the logs of the same service around the same time.
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: '-5m'
+        spanEndTimeShift: '5m'
+        filterByTraceID: true
+        tags:
+          - key: service.name
+            value: service
+
