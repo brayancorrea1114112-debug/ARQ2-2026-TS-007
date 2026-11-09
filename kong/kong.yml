@@ -110,6 +110,7 @@ plugins:
       origins:
         - http://localhost:3001
         - http://127.0.0.1:3001
+        - http://172.27.16.1:3001
       methods:
         - GET
         - POST
