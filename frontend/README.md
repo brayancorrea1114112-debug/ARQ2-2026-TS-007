@@ -21,22 +21,25 @@ Open <http://localhost:3001>. Port 3000 is used by Grafana in the root
 
 By default the client uses the real services through Kong
 (`NEXT_PUBLIC_USE_MOCKS=false`). Start the backend stack from the repository root
-first. For an offline demo, set `NEXT_PUBLIC_USE_MOCKS=true` and
-`NEXT_PUBLIC_MOCK_SCOPE=all`.
+first. The browser calls same-origin `/api/v1`, and Next rewrites it to Kong, so
+`http://localhost:3001` and the network URL both work. For an offline demo, set
+`NEXT_PUBLIC_USE_MOCKS=true` and `NEXT_PUBLIC_MOCK_SCOPE=all`.
 
 ## Environment
 
 Create `frontend/.env.local` from `.env.example`:
 
 ```dotenv
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
+NEXT_PUBLIC_API_BASE_URL=/api/v1
+KONG_INTERNAL_URL=http://localhost:8000
 NEXT_PUBLIC_USE_MOCKS=false
 NEXT_PUBLIC_MOCK_SCOPE=all
 ```
 
 | Variable | Description |
 |---|---|
-| `NEXT_PUBLIC_API_BASE_URL` | Kong proxy base URL. Always ends at `/api/v1` |
+| `NEXT_PUBLIC_API_BASE_URL` | Same-origin `/api/v1` by default; Next rewrites it to Kong. Use an absolute URL only for direct Kong access |
+| `KONG_INTERNAL_URL` | Server-side Kong address used by the rewrite (default `http://localhost:8000`) |
 | `NEXT_PUBLIC_USE_MOCKS` | `false` sends every request to Kong. `true` starts the MSW worker |
 | `NEXT_PUBLIC_MOCK_SCOPE` | Only used with mocks: `all` mocks every endpoint (offline/E2E) |
 
@@ -113,6 +116,7 @@ Next.js allows only one dev server per project directory, so stop your local
 
 ```
 Browser → Next.js Web App → Kong → microservices
+                 (same-origin /api/v1 rewrite)
 ```
 
 - The client never accesses a database, Redis, Cassandra or RabbitMQ.
