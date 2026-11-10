@@ -9,6 +9,32 @@ StreamHub is built using a modern microservices architecture following **Domain-
 ## Documentation Link
 **Docs Link:** https://docs.google.com/document/d/14LykQcHYPvamaiVPFFPQfhcVMt8RC_OaAPY49MoZNDs/edit?tab=t.0
 
+## Frontend (Next.js)
+
+The web client lives in `frontend/` and talks to the platform only through Kong
+(`/api/v1`). The Catalog & Home Service is now available, so the client defaults
+to `NEXT_PUBLIC_MOCK_SCOPE=missing`: login, profiles and home go to Kong; only
+telemetry and likes stay mocked until the Telemetry Service exists.
+`NEXT_PUBLIC_MOCK_SCOPE=all` keeps the fully offline demo used by the E2E suite.
+
+```bash
+cd frontend
+npm install
+npm run dev   # http://localhost:3001
+```
+
+For the real backend, create the root `.env` from `.env.example` (`JWT_SECRET`
+and `MONGODB_URI`) and start the stack. `mongo-seed` and `redis-seed` load the
+development catalog and Home views:
+
+```bash
+docker compose up -d postgres auth-service mongo mongo-seed redis redis-seed catalog-service kong
+```
+
+Demo accounts: `ana@example.com` / `S3cret-pass` (Ana and Sam profiles) and
+`luis@example.com` / `S3cret-pass`. See `frontend/README.md` for the environment
+flags, scripts and the checklist to connect the real services.
+
 ## Interactions DB (Cassandra)
 
 The `recommendation-worker` persists playback progress, ratings and raw events in Cassandra
