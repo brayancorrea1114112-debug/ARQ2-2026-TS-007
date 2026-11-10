@@ -1,7 +1,7 @@
 # ADR 002: Decoupled Ingestion of Playback Telemetry Using a Message Broker (RabbitMQ)
 
 ## Status
-Accepted
+Accepted (projection amended by ADR 007)
 
 ## Context and Problem
 Connected client devices emit an HTTP telemetry ping every 10 seconds. Processing these writes synchronously against the primary database blocks connections and makes simultaneous catalog browsing sluggish or entirely unavailable.
@@ -21,8 +21,8 @@ Option 2 - Asynchronous ingestion using RabbitMQ.
 ## Final Justification
 It allows the system to absorb continuous write peaks from millions of active players without impacting the availability or responsiveness of the core browsing system.
 
-## Note (complemented by ADR 006)
-The broker remains the transport. Consumers persist each event in the Cassandra Interactions DB before projecting it into Redis, so no interaction data depends only on the cache.
+## Note (complemented by ADR 006 and amended by ADR 007)
+The broker remains the transport. Consumers persist interaction state in the Cassandra Interactions DB. Per ADR 007, workers do not project to Redis; Catalog & Home fills the cache on demand.
 
 ## Implementation Notes
 

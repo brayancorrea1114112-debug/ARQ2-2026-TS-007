@@ -74,7 +74,7 @@ services:
       retries: 20
       start_period: 10s
 
-  # Development catalog for the Home fallback. Idempotent, runs once and exits.
+  # Development catalog used to build Home entries on cache misses. Idempotent, runs once and exits.
   mongo-seed:
     container_name: mongo-seed-arquitectura2
     image: mongo:7
@@ -116,7 +116,7 @@ services:
       retries: 20
       start_period: 40s
 
-  # Creates the keyspace and tables before the workers start.
+  # Creates the keyspace and tables before the worker and Catalog service start.
   cassandra-init:
     container_name: cassandra-init-arquitectura2
     image: cassandra:4.1
@@ -137,18 +137,6 @@ services:
     ports:
       - "6379:6379"
 
-  # Development Home views so the catalog service can answer from cache. Idempotent.
-  redis-seed:
-    container_name: redis-seed-arquitectura2
-    image: redis:7
-    depends_on:
-      redis:
-        condition: service_started
-    volumes:
-      - ./infra/redis/seed.sh:/seed.sh:ro
-    command: ["sh", "/seed.sh"]
-    restart: "no"
-
   # mensajes
   rabbitmq:
     container_name: rabbitmq-arquitectura2
@@ -168,8 +156,6 @@ services:
     depends_on:
       rabbitmq:
         condition: service_started
-      redis:
-        condition: service_started
       cassandra-init:
         condition: service_completed_successfully
       otel-collector:
@@ -179,14 +165,10 @@ services:
       SPRING_RABBITMQ_PORT: 5672
       SPRING_RABBITMQ_USERNAME: userArquitectura2
       SPRING_RABBITMQ_PASSWORD: "Punto123969**-+"
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: 6379
       CASSANDRA_HOST: cassandra
       CASSANDRA_PORT: 9042
       CASSANDRA_DATACENTER: datacenter1
       CASSANDRA_KEYSPACE: streamhub
-      REBUILD_ON_STARTUP: "false"
-      ADMIN_TOKEN: "streamhub-admin-token"
     ports:
       - "8082:8080"
 
@@ -198,6 +180,8 @@ services:
         condition: service_started
       redis:
         condition: service_started
+      cassandra-init:
+        condition: service_completed_successfully
       otel-collector:
         condition: service_started
     environment:
@@ -206,6 +190,10 @@ services:
       MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/streamhub}
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      CASSANDRA_HOST: cassandra
+      CASSANDRA_PORT: 9042
+      CASSANDRA_DATACENTER: datacenter1
+      CASSANDRA_KEYSPACE: streamhub
     ports:
       - "8083:8080"
 

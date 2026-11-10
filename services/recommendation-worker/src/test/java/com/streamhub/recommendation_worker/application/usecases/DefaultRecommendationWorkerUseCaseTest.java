@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.streamhub.recommendation_worker.application.ports.out.EventStorePort;
 import com.streamhub.recommendation_worker.application.ports.out.PreferenceStorePort;
 import com.streamhub.recommendation_worker.application.ports.out.ProgressStorePort;
+import com.streamhub.recommendation_worker.application.ports.out.RecommendationStorePort;
+import com.streamhub.recommendation_worker.application.ports.out.RecommendationStrategy;
 import com.streamhub.recommendation_worker.application.ports.out.RatingStorePort;
 import com.streamhub.recommendation_worker.domain.model.PingReceivedEvent;
 import com.streamhub.recommendation_worker.domain.model.ProgressSnapshot;
@@ -14,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 
 import java.time.Instant;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -23,6 +26,9 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 
 class DefaultRecommendationWorkerUseCaseTest {
 
@@ -33,7 +39,8 @@ class DefaultRecommendationWorkerUseCaseTest {
     private RatingStorePort ratingStore;
     private PreferenceStorePort preferenceStore;
     private EventStorePort eventStore;
-    private HomeProjection projection;
+    private RecommendationStorePort recommendationStore;
+    private RecommendationStrategy recommendationStrategy;
     private DefaultRecommendationWorkerUseCase useCase;
 
     @BeforeEach
@@ -42,25 +49,29 @@ class DefaultRecommendationWorkerUseCaseTest {
         ratingStore = mock(RatingStorePort.class);
         preferenceStore = mock(PreferenceStorePort.class);
         eventStore = mock(EventStorePort.class);
-        projection = mock(HomeProjection.class);
+        recommendationStore = mock(RecommendationStorePort.class);
+        recommendationStrategy = mock(RecommendationStrategy.class);
+        when(recommendationStrategy.recommend(anyString(), anyList(), anyList())).thenReturn(List.of("mov_77"));
         useCase = new DefaultRecommendationWorkerUseCase(progressStore, ratingStore, preferenceStore,
-                eventStore, projection, new ObjectMapper().findAndRegisterModules());
+                eventStore, recommendationStore, recommendationStrategy,
+                new ObjectMapper().findAndRegisterModules());
     }
 
     @Test
-    void handlePing_persistsInCassandraAndThenProjects() {
+    void handlePing_persistsInCassandraAndStoresRecommendationsWithoutRedis() {
         PingReceivedEvent event = new PingReceivedEvent(EVENT_ID, "prof_1", "mov_1", "ep_1", 1200, AT);
 
         useCase.handlePing(event);
 
         verify(eventStore).recordEvent(eq(EVENT_ID), eq("prof_1"), eq("mov_1"),
                 eq("telemetry.ping.received"), any(), any());
-        verify(eventStore).registerProfileActivity("prof_1", AT);
         verify(progressStore).saveProgress(new ProgressSnapshot("prof_1", "mov_1", "ep_1", 1200, AT));
 
-        InOrder order = inOrder(progressStore, projection);
+        verify(recommendationStore).saveRecommendations("prof_1", List.of("mov_77"), AT);
+
+        InOrder order = inOrder(progressStore, recommendationStore);
         order.verify(progressStore).saveProgress(any());
-        order.verify(projection).projectProgress("prof_1");
+        order.verify(recommendationStore).saveRecommendations("prof_1", List.of("mov_77"), AT);
     }
 
     @Test
@@ -73,7 +84,7 @@ class DefaultRecommendationWorkerUseCaseTest {
     }
 
     @Test
-    void handleRating_storesRatingAndPreferenceBeforeProjecting() {
+    void handleRating_storesRatingPreferenceAndRecommendationsInCassandra() {
         RatingAddedEvent event = new RatingAddedEvent(EVENT_ID, "prof_1", "mov_1", "LIKE", AT);
 
         useCase.handleRating(event);
@@ -81,9 +92,11 @@ class DefaultRecommendationWorkerUseCaseTest {
         verify(ratingStore).saveRating(new RatingSnapshot("prof_1", "mov_1", "LIKE", AT));
         verify(preferenceStore).savePreference("prof_1", "mov_1", 1.0, AT);
 
-        InOrder order = inOrder(preferenceStore, projection);
+        verify(recommendationStore).saveRecommendations("prof_1", List.of("mov_77"), AT);
+
+        InOrder order = inOrder(preferenceStore, recommendationStore);
         order.verify(preferenceStore).savePreference(eq("prof_1"), eq("mov_1"), anyDouble(), eq(AT));
-        order.verify(projection).projectInteractions("prof_1");
+        order.verify(recommendationStore).saveRecommendations("prof_1", List.of("mov_77"), AT);
     }
 
     @Test

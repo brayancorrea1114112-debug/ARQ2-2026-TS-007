@@ -2,9 +2,10 @@ package com.streamhub.catalog_service.application.ports.out;
 
 import com.streamhub.catalog_service.domain.model.HomeView;
 
+import java.time.Duration;
 import java.util.Optional;
 
-/** Where the precomputed Home views are read from (Redis, key home:{profile_id}, spec.md 2.4). */
+/** Cache-aside storage for the Home and Continue Watching views. */
 public interface HomeViewCachePort {
 
     /**
@@ -12,4 +13,7 @@ public interface HomeViewCachePort {
      * @throws com.streamhub.catalog_service.domain.exception.ServiceUnavailableException when the cache cannot be reached
      */
     Optional<HomeView> findByProfileId(String profileId);
+
+    /** Stores the Home and Continue Watching entries with their respective TTLs. */
+    void save(HomeView view, Duration homeTtl, Duration continueWatchingTtl);
 }

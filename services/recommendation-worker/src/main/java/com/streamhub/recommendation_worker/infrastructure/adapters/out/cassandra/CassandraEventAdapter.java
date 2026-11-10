@@ -25,22 +25,15 @@ public class CassandraEventAdapter implements EventStorePort {
                  progress_seconds, rating)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?) USING TIMESTAMP ? AND TTL ?
             """;
-    private static final String UPSERT_PROFILE = """
-            INSERT INTO profile_registry (profile_id, last_event_at) VALUES (?, ?) USING TIMESTAMP ?
-            """;
     private static final String SELECT_HISTORY = """
             SELECT profile_id, event_timestamp, event_id, event_type, content_id, episode_id,
                    progress_seconds, rating
             FROM event_history_by_profile WHERE profile_id = ? LIMIT ?
             """;
-    private static final String SELECT_PROFILES = "SELECT profile_id FROM profile_registry";
-
     private final CqlSession session;
     private final PreparedStatement insertEvent;
     private final PreparedStatement insertHistory;
-    private final PreparedStatement upsertProfile;
     private final PreparedStatement selectHistory;
-    private final PreparedStatement selectProfiles;
     private final int historyTtlSeconds;
 
     public CassandraEventAdapter(CqlSession session,
@@ -48,9 +41,7 @@ public class CassandraEventAdapter implements EventStorePort {
         this.session = session;
         this.insertEvent = session.prepare(INSERT_EVENT);
         this.insertHistory = session.prepare(INSERT_HISTORY);
-        this.upsertProfile = session.prepare(UPSERT_PROFILE);
         this.selectHistory = session.prepare(SELECT_HISTORY);
-        this.selectProfiles = session.prepare(SELECT_PROFILES);
         this.historyTtlSeconds = Math.toIntExact(Duration.ofDays(historyTtlDays).toSeconds());
     }
 
@@ -77,21 +68,9 @@ public class CassandraEventAdapter implements EventStorePort {
     }
 
     @Override
-    public void registerProfileActivity(String profileId, Instant at) {
-        session.execute(upsertProfile.bind(profileId, at, CassandraSupport.micros(at)));
-    }
-
-    @Override
     public List<HistoryEntry> findHistory(String profileId, int limit) {
         return session.execute(selectHistory.bind(profileId, limit)).all().stream()
                 .map(CassandraEventAdapter::toEntry)
-                .toList();
-    }
-
-    @Override
-    public List<String> findProfileIds() {
-        return session.execute(selectProfiles.bind()).all().stream()
-                .map(row -> row.getString("profile_id"))
                 .toList();
     }
 

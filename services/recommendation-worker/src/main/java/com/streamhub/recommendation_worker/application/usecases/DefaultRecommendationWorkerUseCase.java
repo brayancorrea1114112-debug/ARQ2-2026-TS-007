@@ -7,6 +7,8 @@ import com.streamhub.recommendation_worker.application.ports.out.EventStorePort;
 import com.streamhub.recommendation_worker.application.ports.out.PreferenceStorePort;
 import com.streamhub.recommendation_worker.application.ports.out.ProgressStorePort;
 import com.streamhub.recommendation_worker.application.ports.out.RatingStorePort;
+import com.streamhub.recommendation_worker.application.ports.out.RecommendationStorePort;
+import com.streamhub.recommendation_worker.application.ports.out.RecommendationStrategy;
 import com.streamhub.recommendation_worker.domain.model.HistoryEntry;
 import com.streamhub.recommendation_worker.domain.model.PingReceivedEvent;
 import com.streamhub.recommendation_worker.domain.model.ProgressSnapshot;
@@ -17,8 +19,8 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 
 /**
- * Persists every event in Cassandra (durable source of truth) and only then projects it to Redis
- * (disposable read model). Every write is idempotent and time-ordered, so a redelivery is safe.
+ * Persists event state and its recommendation result in Cassandra. Redis is populated on demand
+ * by the Catalog & Home Service.
  */
 @Service
 public class DefaultRecommendationWorkerUseCase implements RecommendationWorkerUseCase {
@@ -33,20 +35,23 @@ public class DefaultRecommendationWorkerUseCase implements RecommendationWorkerU
     private final RatingStorePort ratingStore;
     private final PreferenceStorePort preferenceStore;
     private final EventStorePort eventStore;
-    private final HomeProjection projection;
+    private final RecommendationStorePort recommendationStore;
+    private final RecommendationStrategy recommendationStrategy;
     private final ObjectMapper objectMapper;
 
     public DefaultRecommendationWorkerUseCase(ProgressStorePort progressStore,
                                               RatingStorePort ratingStore,
                                               PreferenceStorePort preferenceStore,
                                               EventStorePort eventStore,
-                                              HomeProjection projection,
+                                              RecommendationStorePort recommendationStore,
+                                              RecommendationStrategy recommendationStrategy,
                                               ObjectMapper objectMapper) {
         this.progressStore = progressStore;
         this.ratingStore = ratingStore;
         this.preferenceStore = preferenceStore;
         this.eventStore = eventStore;
-        this.projection = projection;
+        this.recommendationStore = recommendationStore;
+        this.recommendationStrategy = recommendationStrategy;
         this.objectMapper = objectMapper;
     }
 
@@ -59,12 +64,10 @@ public class DefaultRecommendationWorkerUseCase implements RecommendationWorkerU
                 PING_EVENT_TYPE, serialize(event), receivedAt);
         eventStore.recordHistory(new HistoryEntry(event.profileId(), event.timestamp(), event.eventId(),
                 PING_EVENT_TYPE, event.contentId(), event.episodeId(), event.progressSeconds(), null));
-        eventStore.registerProfileActivity(event.profileId(), event.timestamp());
-
         progressStore.saveProgress(new ProgressSnapshot(event.profileId(), event.contentId(),
                 event.episodeId(), event.progressSeconds(), event.timestamp()));
 
-        projection.projectProgress(event.profileId());
+        refreshRecommendations(event.profileId(), event.timestamp());
     }
 
     @Override
@@ -76,14 +79,19 @@ public class DefaultRecommendationWorkerUseCase implements RecommendationWorkerU
                 RATING_EVENT_TYPE, serialize(event), receivedAt);
         eventStore.recordHistory(new HistoryEntry(event.profileId(), event.timestamp(), event.eventId(),
                 RATING_EVENT_TYPE, event.contentId(), null, null, event.rating()));
-        eventStore.registerProfileActivity(event.profileId(), event.timestamp());
-
         ratingStore.saveRating(new RatingSnapshot(event.profileId(), event.contentId(),
                 event.rating(), event.timestamp()));
         preferenceStore.savePreference(event.profileId(), event.contentId(),
                 LIKE.equals(event.rating()) ? 1.0 : -1.0, event.timestamp());
 
-        projection.projectInteractions(event.profileId());
+        refreshRecommendations(event.profileId(), event.timestamp());
+    }
+
+    private void refreshRecommendations(String profileId, Instant generatedAt) {
+        recommendationStore.saveRecommendations(profileId,
+                recommendationStrategy.recommend(profileId, ratingStore.findByProfile(profileId),
+                        progressStore.findByProfile(profileId)),
+                generatedAt);
     }
 
     private static void validatePing(PingReceivedEvent event) {

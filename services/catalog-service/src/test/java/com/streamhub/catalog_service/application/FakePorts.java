@@ -1,8 +1,10 @@
 package com.streamhub.catalog_service.application;
 
 import com.streamhub.catalog_service.application.ports.out.HomeViewCachePort;
+import com.streamhub.catalog_service.application.ports.out.InteractionsReadPort;
 import com.streamhub.catalog_service.application.ports.out.TitleSummaryPort;
 import com.streamhub.catalog_service.domain.exception.ServiceUnavailableException;
+import com.streamhub.catalog_service.domain.model.ContinueWatchingItem;
 import com.streamhub.catalog_service.domain.model.HomeView;
 import com.streamhub.catalog_service.domain.model.TitleSummary;
 
@@ -12,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.time.Duration;
 
 /** In-memory replacements of the output ports, so the use case is tested without Redis or MongoDB. */
 final class FakePorts {
@@ -27,6 +30,7 @@ final class FakePorts {
 
         private final Map<String, HomeView> views = new HashMap<>();
         boolean down;
+        int saveCalls;
 
         void store(HomeView view) {
             views.put(view.profileId(), view);
@@ -38,6 +42,47 @@ final class FakePorts {
                 throw new ServiceUnavailableException("The cache");
             }
             return Optional.ofNullable(views.get(profileId));
+        }
+
+        @Override
+        public void save(HomeView view, Duration homeTtl, Duration continueWatchingTtl) {
+            if (down) {
+                throw new ServiceUnavailableException("The cache");
+            }
+            saveCalls++;
+            store(view);
+        }
+    }
+
+    static class InMemoryInteractions implements InteractionsReadPort {
+
+        private final Map<String, List<ContinueWatchingItem>> continueWatching = new HashMap<>();
+        private final Map<String, List<String>> recommendations = new HashMap<>();
+        boolean down;
+        int continueWatchingCalls;
+        int recommendationCalls;
+
+        void store(String profileId, List<ContinueWatchingItem> watching, List<String> recommended) {
+            continueWatching.put(profileId, watching);
+            recommendations.put(profileId, recommended);
+        }
+
+        @Override
+        public List<ContinueWatchingItem> findContinueWatching(String profileId) {
+            continueWatchingCalls++;
+            if (down) {
+                throw new ServiceUnavailableException("The Interactions DB");
+            }
+            return continueWatching.getOrDefault(profileId, List.of());
+        }
+
+        @Override
+        public List<String> findRecommendations(String profileId) {
+            recommendationCalls++;
+            if (down) {
+                throw new ServiceUnavailableException("The Interactions DB");
+            }
+            return recommendations.getOrDefault(profileId, List.of());
         }
     }
 
@@ -59,7 +104,9 @@ final class FakePorts {
         void trending(String... contentIds) {
             List<TitleSummary> summaries = new ArrayList<>();
             for (String contentId : contentIds) {
-                summaries.add(summary(contentId));
+                TitleSummary title = summary(contentId);
+                summaries.add(title);
+                byId.put(contentId, title);
             }
             trending = summaries;
         }

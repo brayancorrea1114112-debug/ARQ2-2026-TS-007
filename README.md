@@ -23,12 +23,12 @@ npm run dev   # http://localhost:3001
 ```
 
 Create the root `.env` from `.env.example` (`JWT_SECRET` and `MONGODB_URI`) and
-start the stack. `mongo-seed` and `redis-seed` load the development catalog and
-Home views:
+start the stack. `mongo-seed` loads the development catalog; Home cache entries
+are built on demand from MongoDB and Cassandra:
 
 ```bash
 docker compose up -d --build postgres auth-service mongo mongo-seed \
-  redis redis-seed catalog-service telemetry-service \
+  redis catalog-service telemetry-service \
   rabbitmq cassandra cassandra-init recommendation-worker \
   otel-collector jaeger kong
 ```
@@ -42,8 +42,9 @@ flags, scripts and the E2E modes.
 `telemetry-service` serves `POST /api/v1/telemetry/ping` and
 `POST /api/v1/interactions/like`, verifies the profile JWT and publishes
 `telemetry.ping.received` / `interaction.rating.added` to RabbitMQ with publisher
-confirms. The `recommendation-worker` consumes them, persists to Cassandra and
-projects into Redis (ADR 002 and ADR 006).
+confirms. The `recommendation-worker` consumes them and persists interaction
+state plus computed recommendations to Cassandra. Catalog & Home fills Redis on
+cache misses (ADR 002, ADR 006 and ADR 007).
 
 Traces are collected with OpenTelemetry and exported to **Jaeger** at
 <http://localhost:16686>. A ping trace follows Kong → telemetry-service →
@@ -52,13 +53,14 @@ deliberately out of this delivery (ADR 005).
 
 ## Interactions DB (Cassandra)
 
-The `recommendation-worker` persists playback progress, ratings and raw events in Cassandra
-before projecting them into Redis. Cassandra is the durable source of truth (ADR 006); Redis
-can be rebuilt from it at any time.
+The `recommendation-worker` persists playback progress, ratings, raw events and computed
+recommendations in Cassandra. Cassandra is the durable source of truth (ADR 006, amended by
+ADR 007); workers do not write to Redis. On a Home cache miss, Catalog & Home reads trending
+titles from MongoDB and progress/recommendations from Cassandra, then caches the result.
 
 ```bash
 # Start Cassandra, create the keyspace/tables and start the worker
-docker compose up -d cassandra cassandra-init redis rabbitmq recommendation-worker
+docker compose up -d cassandra cassandra-init redis rabbitmq recommendation-worker catalog-service
 ```
 
 Schema: `infra/cassandra/init.cql` (keyspace `streamhub`).
@@ -72,18 +74,9 @@ Relevant environment variables:
 | `CASSANDRA_DATACENTER` | `datacenter1` | Local datacenter |
 | `CASSANDRA_KEYSPACE` | `streamhub` | Keyspace |
 | `CASSANDRA_HISTORY_TTL_DAYS` | `90` | Retention of raw event history |
-| `ADMIN_TOKEN` | `changeme` | Token for the rebuild endpoints |
-| `REBUILD_ON_STARTUP` | `false` | Rebuild the read model on every start |
-
-Rebuild the Redis read model from Cassandra:
-
-```bash
-# One profile
-curl -X POST http://localhost:8082/admin/rebuild/prof_9921 -H "X-Admin-Token: streamhub-admin-token"
-
-# All profiles registered in Cassandra
-curl -X POST http://localhost:8082/admin/rebuild -H "X-Admin-Token: streamhub-admin-token"
-```
+| `HOME_CACHE_TTL` | `15m` | Redis Home entry TTL |
+| `CONTINUE_WATCHING_CACHE_TTL` | `24h` | Separate Continue Watching entry TTL |
+| `CACHE_TTL_JITTER` | `2m` | Random TTL variation to spread expirations |
 
 Tests: `mvn -q -B test` inside `services/recommendation-worker`.
 

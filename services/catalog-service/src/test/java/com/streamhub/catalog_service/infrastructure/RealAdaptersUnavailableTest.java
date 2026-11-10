@@ -11,7 +11,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** spec.md Feature 2: Redis and MongoDB both down give 503 with the standard body. Nothing listens on port 1. */
+/** A cache miss with unavailable backing stores returns 503 with the standard body. Nothing listens on port 1. */
 @SpringBootTest(properties = {
         "jwt.secret=" + TestTokens.SECRET, "jwt.issuer=" + TestTokens.ISSUER,
         "spring.data.redis.host=localhost", "spring.data.redis.port=1",

@@ -38,7 +38,7 @@ class HomeWiringTest {
     }
 
     @Test
-    void aProfileWithoutViewGetsTheFallbackHome() throws Exception {
+    void aProfileWithoutViewGetsARebuiltHome() throws Exception {
         mvc.perform(get("/api/v1/home").header(HttpHeaders.AUTHORIZATION, bearer("prof_1234")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.profile_id").value("prof_1234"))
