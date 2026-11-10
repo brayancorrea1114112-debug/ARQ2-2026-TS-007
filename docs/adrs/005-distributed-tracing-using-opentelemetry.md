@@ -20,3 +20,14 @@ Option 2 - Implement OpenTelemetry for distributed tracing and use Jaeger to col
 
 ## Final Justification
 Distributed tracing enables StreamHub to pinpoint which microservice or database contributes most to initial client request latency, empowering the engineering team to diagnose bottlenecks and optimize the Home screen delivery path effectively.
+
+## Implementation Notes
+
+This delivery implements **traces only**; the metrics and logs stack is out of scope.
+
+- `otel-collector/otel-collector.yml` receives OTLP over gRPC/HTTP and exports batches to Jaeger (`jaeger:4317`).
+- Spring Boot 4 services use `spring-boot-micrometer-tracing-opentelemetry`; the Spring Boot 3 worker uses `micrometer-tracing-bridge-otel` and the OTLP HTTP exporter.
+- Kong uses the `opentelemetry` plugin with `KONG_TRACING_INSTRUMENTATIONS=all` and W3C propagation, so it creates and injects `traceparent`.
+- RabbitMQ observations propagate the trace context; the worker span joins the HTTP trace of the ping or like.
+- Jaeger UI: <http://localhost:16686>.
+- Prometheus, Loki, Grafana, Promtail, metrics endpoints and dashboards are deliberately excluded from this change.

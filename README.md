@@ -12,10 +12,9 @@ StreamHub is built using a modern microservices architecture following **Domain-
 ## Frontend (Next.js)
 
 The web client lives in `frontend/` and talks to the platform only through Kong
-(`/api/v1`). The Catalog & Home Service is now available, so the client defaults
-to `NEXT_PUBLIC_MOCK_SCOPE=missing`: login, profiles and home go to Kong; only
-telemetry and likes stay mocked until the Telemetry Service exists.
-`NEXT_PUBLIC_MOCK_SCOPE=all` keeps the fully offline demo used by the E2E suite.
+(`/api/v1`). It runs against the real services by default
+(`NEXT_PUBLIC_USE_MOCKS=false`). For the offline demo used by the mock E2E suite,
+set `NEXT_PUBLIC_USE_MOCKS=true` and `NEXT_PUBLIC_MOCK_SCOPE=all`.
 
 ```bash
 cd frontend
@@ -23,17 +22,33 @@ npm install
 npm run dev   # http://localhost:3001
 ```
 
-For the real backend, create the root `.env` from `.env.example` (`JWT_SECRET`
-and `MONGODB_URI`) and start the stack. `mongo-seed` and `redis-seed` load the
-development catalog and Home views:
+Create the root `.env` from `.env.example` (`JWT_SECRET` and `MONGODB_URI`) and
+start the stack. `mongo-seed` and `redis-seed` load the development catalog and
+Home views:
 
 ```bash
-docker compose up -d postgres auth-service mongo mongo-seed redis redis-seed catalog-service kong
+docker compose up -d --build postgres auth-service mongo mongo-seed \
+  redis redis-seed catalog-service telemetry-service \
+  rabbitmq cassandra cassandra-init recommendation-worker \
+  otel-collector jaeger kong
 ```
 
 Demo accounts: `ana@example.com` / `S3cret-pass` (Ana and Sam profiles) and
 `luis@example.com` / `S3cret-pass`. See `frontend/README.md` for the environment
-flags, scripts and the checklist to connect the real services.
+flags, scripts and the E2E modes.
+
+## Telemetry, interactions and Jaeger
+
+`telemetry-service` serves `POST /api/v1/telemetry/ping` and
+`POST /api/v1/interactions/like`, verifies the profile JWT and publishes
+`telemetry.ping.received` / `interaction.rating.added` to RabbitMQ with publisher
+confirms. The `recommendation-worker` consumes them, persists to Cassandra and
+projects into Redis (ADR 002 and ADR 006).
+
+Traces are collected with OpenTelemetry and exported to **Jaeger** at
+<http://localhost:16686>. A ping trace follows Kong → telemetry-service →
+RabbitMQ → recommendation-worker. Prometheus, Loki, Grafana and dashboards are
+deliberately out of this delivery (ADR 005).
 
 ## Interactions DB (Cassandra)
 
