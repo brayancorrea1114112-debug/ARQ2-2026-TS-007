@@ -90,3 +90,15 @@ playback telemetry and likes stay mocked until the Telemetry Service exists.
 The Catalog & Home Service currently returns summaries only (`content_id`, `name`,
 `poster`), so synopsis, duration and genres are still absent from the UI until a
 title-detail endpoint exists.
+
+## Update: telemetry service and Jaeger
+
+The Telemetry & Interactions Service now exists and is routed by Kong, so the
+client runs with `NEXT_PUBLIC_USE_MOCKS=false` by default. The offline demo and
+the mock E2E suite use `NEXT_PUBLIC_USE_MOCKS=true` with
+`NEXT_PUBLIC_MOCK_SCOPE=all`.
+
+Jaeger tracing is enabled for the gateway, auth, catalog, telemetry and the
+worker (traces only). The trace of a ping follows Kong → telemetry-service →
+RabbitMQ → recommendation-worker. Prometheus, Loki, Grafana and dashboards remain
+out of this delivery.
