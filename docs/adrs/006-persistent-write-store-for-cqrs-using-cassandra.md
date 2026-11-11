@@ -1,7 +1,7 @@
 # ADR 006: Persistent Write Store for CQRS Using a Write-Optimized NoSQL Database (Cassandra)
 
 ## Status
-Accepted
+Accepted (amended by ADR 007)
 
 ## Context and Problem
 StreamHub separates the write path (playback pings, likes and ratings ingested through the Telemetry & Interactions Service and RabbitMQ) from the read path (the precomputed Home view served from Redis). However, in the current design the asynchronous workers consume events from the broker and write their result only to the Redis cache. This leaves the platform without a durable source of truth for user interaction data: Redis is an in-memory store and RabbitMQ is a transport, not a permanent record. If the cache is lost, evicted or corrupted, the "Continue Watching" state and the preference data used for recommendations cannot be rebuilt. In addition, a full CQRS implementation requires an authoritative write model from which read models are derived. Devices emit an HTTP ping every 10 seconds, so the chosen store must absorb a continuous, high-volume stream of small writes without affecting catalog reads.
@@ -30,3 +30,6 @@ The decision is implemented by the `recommendation-worker` (a single worker cons
 - The worker persists to Cassandra first and projects to Redis afterwards, so the read model never advances ahead of the durable state.
 - The read model is rebuilt with `POST /admin/rebuild[/{profile_id}]` (header `X-Admin-Token`), or on startup with `REBUILD_ON_STARTUP=true`.
 - Raw event history has a configurable TTL (`CASSANDRA_HISTORY_TTL_DAYS`, 90 days by default).
+
+## Amendment
+ADR 007 replaces the worker-to-Redis projection and the manual/startup read-model rebuild described above. Workers now persist interaction state and computed recommendations only in Cassandra. The Catalog & Home Service rebuilds Redis entries from MongoDB and Cassandra on cache misses, with TTLs and per-key request coalescing.

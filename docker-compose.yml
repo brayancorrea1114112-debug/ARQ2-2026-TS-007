@@ -12,7 +12,6 @@ services:
       KONG_ADMIN_ACCESS_LOG: /dev/stdout
       KONG_ADMIN_ERROR_LOG: /dev/stderr
       KONG_DECLARATIVE_CONFIG: /kong/kong.yml
-      # Tracing for the opentelemetry plugin (see kong/kong.yml)
       KONG_TRACING_INSTRUMENTATIONS: all
       KONG_TRACING_SAMPLING_RATE: "1.0"
     ports:
@@ -54,8 +53,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
     ports:
-      - "8081:8080"
+      - "${AUTH_SERVICE_PORT:-8081}:8080"
 
   mongo:
     container_name: mongo-arquitectura2
@@ -67,6 +68,24 @@ services:
       - mongodata:/data/db
     ports:
       - "27017:27017"
+    healthcheck:
+      test: [ "CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping').ok\" | grep 1" ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # Development catalog used to build Home entries on cache misses. Idempotent, runs once and exits.
+  mongo-seed:
+    container_name: mongo-seed-arquitectura2
+    image: mongo:7
+    depends_on:
+      mongo:
+        condition: service_healthy
+    volumes:
+      - ./infra/mongo/seed.js:/seed.js:ro
+    command: [ "mongosh", "mongodb://mongo:27017/streamhub", "--username", "userArquitectura2", "--password", "Punto123969**-+", "--authenticationDatabase", "admin", "--quiet", "/seed.js" ]
+    restart: "no"
 
   cassandra:
     container_name: cassandra-arquitectura2
@@ -86,7 +105,7 @@ services:
       retries: 20
       start_period: 40s
 
-  # Creates the keyspace and tables before the workers start.
+  # Creates the keyspace and tables before the worker and Catalog service start.
   cassandra-init:
     container_name: cassandra-init-arquitectura2
     image: cassandra:4.1
@@ -126,24 +145,19 @@ services:
     depends_on:
       rabbitmq:
         condition: service_started
-      redis:
-        condition: service_started
       cassandra-init:
         condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
     environment:
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_RABBITMQ_PORT: 5672
       SPRING_RABBITMQ_USERNAME: userArquitectura2
       SPRING_RABBITMQ_PASSWORD: "Punto123969**-+"
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: 6379
       CASSANDRA_HOST: cassandra
       CASSANDRA_PORT: 9042
       CASSANDRA_DATACENTER: datacenter1
       CASSANDRA_KEYSPACE: streamhub
-      REBUILD_ON_STARTUP: "false"
-      ADMIN_TOKEN: "streamhub-admin-token"
-      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
     ports:
       - "8082:8080"
 
@@ -155,24 +169,48 @@ services:
         condition: service_started
       redis:
         condition: service_started
+      cassandra-init:
+        condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
     environment:
       # Values come from .env (see .env.example), never from this file.
       JWT_SECRET: ${JWT_SECRET:-}
       MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/streamhub}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
+      CASSANDRA_HOST: cassandra
+      CASSANDRA_PORT: 9042
+      CASSANDRA_DATACENTER: datacenter1
+      CASSANDRA_KEYSPACE: streamhub
     ports:
       - "8083:8080"
+
+  telemetry-service:
+    container_name: telemetry-service-arquitectura2
+    build: ./services/telemetry-service
+    depends_on:
+      rabbitmq:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+    environment:
+      JWT_SECRET: ${JWT_SECRET:-}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: userArquitectura2
+      SPRING_RABBITMQ_PASSWORD: "Punto123969**-+"
+    ports:
+      - "${TELEMETRY_SERVICE_PORT:-8084}:8080"
 
   # observability
   # Traces: Kong + services --OTLP--> otel-collector --> jaeger
   otel-collector:
     container_name: otel-collector-arquitectura2
     image: otel/opentelemetry-collector-contrib:0.104.0
-    command: [ "--config=/etc/otelcol-contrib/config.yaml" ]
+    command: [ "--config", "/etc/otelcol/config.yml" ]
     volumes:
-      - ./infra/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - ./otel-collector/otel-collector.yml:/etc/otelcol/config.yml:ro
     depends_on:
       - jaeger
     ports:

@@ -12,9 +12,5 @@ public interface EventStorePort {
 
     void recordHistory(HistoryEntry entry);
 
-    void registerProfileActivity(String profileId, Instant at);
-
     List<HistoryEntry> findHistory(String profileId, int limit);
-
-    List<String> findProfileIds();
 }

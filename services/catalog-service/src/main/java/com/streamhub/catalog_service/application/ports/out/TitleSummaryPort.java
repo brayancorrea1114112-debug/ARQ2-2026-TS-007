@@ -16,6 +16,6 @@ public interface TitleSummaryPort {
     /** Summaries of the given ids. An id that does not exist is simply missing from the answer; the order is not guaranteed. */
     List<TitleSummary> findByIds(List<String> titleIds);
 
-    /** The most watched titles, used to build the generic Home when a profile has no precomputed view. */
+    /** Trending titles used to rebuild a Home view after a cache miss. */
     List<TitleSummary> findTrending(int limit);
 }

@@ -1,5 +1,5 @@
--- StreamHub Interactions DB (ADR 006). Cassandra is the durable source of truth;
--- Redis is a read model that can be rebuilt from these tables.
+-- StreamHub Interactions DB (ADR 006, amended by ADR 007). Cassandra is the durable
+-- source of truth; the Catalog & Home Service rebuilds disposable Redis entries on demand.
 
 CREATE KEYSPACE IF NOT EXISTS streamhub
   WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};
@@ -55,8 +55,9 @@ CREATE TABLE IF NOT EXISTS streamhub.prefs_by_profile (
   PRIMARY KEY ((profile_id), content_id)
 );
 
--- Registry of profiles with data, so a full rebuild can enumerate them.
-CREATE TABLE IF NOT EXISTS streamhub.profile_registry (
-  profile_id    text PRIMARY KEY,
-  last_event_at timestamp
+-- Recommendation results are persisted by the Recommendation Worker and read by Catalog on a cache miss.
+CREATE TABLE IF NOT EXISTS streamhub.recommendations_by_profile (
+  profile_id   text PRIMARY KEY,
+  content_ids  list<text>,
+  generated_at timestamp
 );

@@ -12,10 +12,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
-/** The view as the Recommendation Worker writes it (HomeProjection.writeHome) and as spec.md 2.4 describes it. */
+/** Reads legacy combined Home values while existing entries expire during the cache migration. */
 class RedisHomeViewParsingTest {
 
-    private static final String WORKER_JSON = """
+    private static final String LEGACY_HOME_JSON = """
             {"profile_id":"prof_9921","generated_at":"2026-10-06T19:58:00.123456Z","categories":[],
              "continue_watching":[{"content_id":"mov_8832","episode_id":"ep_102","progress_seconds":1420},
                                   {"content_id":"mov_5","episode_id":null,"progress_seconds":30}],
@@ -23,7 +23,7 @@ class RedisHomeViewParsingTest {
 
     @Test
     void theViewWrittenByTheWorkerIsParsed() {
-        HomeView view = RedisHomeViewAdapter.parse("prof_9921", WORKER_JSON);
+        HomeView view = RedisHomeViewAdapter.parse("prof_9921", LEGACY_HOME_JSON);
 
         assertEquals("prof_9921", view.profileId());
         assertEquals(Instant.parse("2026-10-06T19:58:00.123456Z"), view.generatedAt());
@@ -34,7 +34,7 @@ class RedisHomeViewParsingTest {
 
     @Test
     void aNullEpisodeIdIsAccepted() {
-        HomeView view = RedisHomeViewAdapter.parse("prof_9921", WORKER_JSON);
+        HomeView view = RedisHomeViewAdapter.parse("prof_9921", LEGACY_HOME_JSON);
 
         assertNull(view.continueWatching().get(1).episodeId());
     }
@@ -62,7 +62,7 @@ class RedisHomeViewParsingTest {
 
     @Test
     void theProfileIdIsTheOneOfTheKeyNotTheOneInsideTheDocument() {
-        assertEquals("prof_1", RedisHomeViewAdapter.parse("prof_1", WORKER_JSON).profileId());
+        assertEquals("prof_1", RedisHomeViewAdapter.parse("prof_1", LEGACY_HOME_JSON).profileId());
     }
 
     @Test

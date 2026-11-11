@@ -23,8 +23,9 @@ import java.util.concurrent.TimeUnit;
 public class RealAdaptersConfig {
 
     @Bean
-    public HomeViewCachePort homeViewCachePort(StringRedisTemplate redis) {
-        return new RedisHomeViewAdapter(redis);
+    public HomeViewCachePort homeViewCachePort(StringRedisTemplate redis,
+                                               @Value("${catalog.cache-ttl-jitter}") Duration ttlJitter) {
+        return new RedisHomeViewAdapter(redis, ttlJitter);
     }
 
     @Bean

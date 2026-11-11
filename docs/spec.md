@@ -23,7 +23,7 @@ At 8:00 PM the "Home" screen is built with real-time JOINs between users, viewin
 
 The solution has two rules:
 
-- Reads of the Home screen never touch a relational database: they are served from a precomputed view in Redis.
+- Home reads are served from Redis when available. On a cache miss the Catalog & Home Service rebuilds the view from MongoDB and Cassandra, then caches it.
 - Playback pings and likes are never written synchronously: they are published to RabbitMQ and processed in the background.
 
 ### 1.2 Services and responsibilities
@@ -32,11 +32,11 @@ The solution has two rules:
 |---|---|---|
 | **API Gateway** | Kong | Single entry point. Validates the JWT, applies rate limiting, routes requests, and creates the `X-Correlation-ID` and the W3C `traceparent` headers when the client does not send them. |
 | **Auth & Profile Service** | Container + PostgreSQL | Master accounts, login, family subprofiles and subprofile selection. Issues the JWTs. |
-| **Catalog & Home Service** | Container + Redis + MongoDB | Serves the Home screen from Redis. Falls back to MongoDB when the view is not in the cache. Exposes catalog metadata. |
+| **Catalog & Home Service** | Container + Redis + MongoDB + Cassandra | Serves Home from Redis; on a miss, reads trending titles from MongoDB and progress/recommendations from Cassandra, then populates Redis. |
 | **Telemetry Service** | Container + RabbitMQ | Receives playback pings and likes, validates them, publishes them as events and replies `202 Accepted` immediately. It does not write to any database. |
 | **Message Broker** | RabbitMQ | Decouples ingestion from processing. Holds the telemetry and interaction queues and their dead-letter queues. |
-| **Recommendation Worker** | Container | Consumes the queues. Persists progress, ratings and raw events in the Interactions DB (Cassandra) and then projects the new state into Redis: "Continue Watching", profile preferences and the precomputed Home view. |
-| **Interactions DB** | Cassandra | Durable, write-optimized source of truth for playback progress, ratings and raw interaction events. The Redis read model can be fully rebuilt from it. |
+| **Recommendation Worker** | Container | Consumes the queues. Persists progress, ratings, raw events and computed recommendations in the Interactions DB (Cassandra). It does not write to Redis. |
+| **Interactions DB** | Cassandra | Durable source of truth for playback progress, ratings, raw interaction events and computed recommendations. |
 | **Observability Stack** | OpenTelemetry, Jaeger, Prometheus, Loki, Grafana | Collects traces, metrics and logs to locate latency in the initial requests. |
 
 ### 1.3 Cross-cutting rules
@@ -112,7 +112,7 @@ A movie has no `seasons` and uses a single `duration_seconds` at the top level.
 
 ### 2.4 HomeView (Redis, key `home:{profile_id}`)
 
-Precomputed JSON document. TTL: 15 minutes. It is rebuilt by the Recommendation Worker after relevant events and invalidated when the catalog changes.
+Cache-aside JSON document. The Catalog & Home Service builds it on a cache miss from MongoDB and Cassandra. TTL defaults to 15 minutes, with a small random variation to spread expirations.
 
 ```json
 {
@@ -121,14 +121,15 @@ Precomputed JSON document. TTL: 15 minutes. It is rebuilt by the Recommendation 
   "categories": [
     { "name": "Trending", "title_ids": ["mov_1", "mov_2"] }
   ],
-  "continue_watching": [
-    { "content_id": "mov_8832", "episode_id": "ep_102", "progress_seconds": 1420 }
-  ],
   "recommended": ["mov_77", "mov_91"]
 }
 ```
 
-### 2.5 PlaybackProgress (Redis, key `progress:{profile_id}:{content_id}`)
+### 2.5 ContinueWatching (Redis, key `continue:{profile_id}`)
+
+JSON list of the profile's latest playback positions. It is cached separately from `HomeView` with a 24-hour default TTL and independent TTL jitter.
+
+### 2.6 PlaybackProgress (Cassandra, table `progress_by_profile`)
 
 | Field | Type | Notes |
 |---|---|---|
@@ -136,7 +137,7 @@ Precomputed JSON document. TTL: 15 minutes. It is rebuilt by the Recommendation 
 | `progress_seconds` | integer | Last accepted position |
 | `last_event_timestamp` | timestamp | Used to ignore out-of-order events |
 
-### 2.6 Rating (event payload and preference input)
+### 2.7 Rating (event payload and preference input)
 
 | Field | Type | Notes |
 |---|---|---|
@@ -145,11 +146,11 @@ Precomputed JSON document. TTL: 15 minutes. It is rebuilt by the Recommendation 
 | `rating` | enum | `LIKE` or `DISLIKE` |
 | `timestamp` | timestamp | The latest rating for the same profile and title wins |
 
-### 2.7 ProfilePreferences (Redis, key `prefs:{profile_id}`)
+### 2.8 ProfilePreferences (Cassandra, table `prefs_by_profile`)
 
-Preference vector recalculated by the Recommendation Worker from ratings and watch history. It is the input to the `recommended` list of the HomeView. It is a disposable read model: the durable copy lives in Cassandra (2.8).
+Durable preference vector updated by the Recommendation Worker. It is not projected into Redis.
 
-### 2.8 Interactions DB (Cassandra, keyspace `streamhub`)
+### 2.9 Interactions DB (Cassandra, keyspace `streamhub`)
 
 Durable source of truth defined in ADR 006. All tables are query-driven.
 
@@ -160,9 +161,9 @@ Durable source of truth defined in ADR 006. All tables are query-driven.
 | `progress_by_profile` | `((profile_id), content_id)` | `episode_id`, `progress_seconds`, `last_event_timestamp` | Current playback state. |
 | `ratings_by_profile` | `((profile_id), content_id)` | `rating`, `updated_at` | Latest rating per title. |
 | `prefs_by_profile` | `((profile_id), content_id)` | `weight`, `updated_at` | Durable preference vector. |
-| `profile_registry` | `profile_id` | `last_event_at` | Enumerates profiles so a full rebuild is possible. |
+| `recommendations_by_profile` | `profile_id` | `content_ids`, `generated_at` | Computed recommendations read by Catalog when rebuilding a cache miss. |
 
-Writes to `progress_by_profile`, `ratings_by_profile`, `prefs_by_profile` and `event_history_by_profile` use `USING TIMESTAMP` derived from the event timestamp, so the newest event wins even when events arrive out of order or are redelivered. Redis is projected only after the Cassandra write succeeds.
+Writes to `progress_by_profile`, `ratings_by_profile`, `prefs_by_profile`, `recommendations_by_profile` and `event_history_by_profile` use `USING TIMESTAMP` derived from the event timestamp, so the newest event wins even when events arrive out of order or are redelivered. Workers never write to Redis.
 
 ---
 
@@ -276,7 +277,7 @@ Responses:
 
 ### 3.4 GET /api/v1/home
 
-Returns the Home screen of the active profile. It is served from Redis and never runs JOINs.
+Returns the Home screen of the active profile. Redis hits are served from the cache; a miss rebuilds the view from MongoDB and Cassandra and stores it in Redis.
 
 - **Authentication:** Bearer profile token
 - **Service:** Catalog & Home Service
@@ -289,7 +290,7 @@ Responses:
 | 200 | Home screen. `source` is `cache` or `fallback` |
 | 401 | Invalid or expired token |
 | 403 | The token has no `profile_id` claim (`PROFILE_NOT_SELECTED`) |
-| 503 | Redis and MongoDB are both unavailable |
+| 503 | A dependency needed to read or rebuild Home is unavailable |
 | 5xx | Server error |
 
 200 example:
@@ -311,7 +312,7 @@ Responses:
 }
 ```
 
-On a cache miss the service answers from MongoDB with a generic Home (trending titles and the profile's progress when available) and returns `"source": "fallback"`. It never builds recommendations with JOINs.
+On a cache miss the service reads Trending from MongoDB and progress and recommendations from Cassandra, stores Home and Continue Watching as separate Redis entries with TTLs, and returns the rebuilt Home with `"source": "fallback"`. Concurrent misses for the same profile share one rebuild. The next request can then be served from Redis.
 
 ### 3.5 POST /api/v1/telemetry/ping
 
@@ -487,14 +488,10 @@ Delivery guarantees:
 
 | Event | Worker action |
 |---|---|
-| `telemetry.ping.received` | Persist the raw event and the new progress in Cassandra, then update `progress:{profile_id}:{content_id}` in Redis and refresh the `continue_watching` section of `home:{profile_id}` |
-| `interaction.rating.added` | Persist the raw event, the rating and the preference in Cassandra, then update `prefs:{profile_id}`, recalculate the recommendations and refresh `home:{profile_id}` |
+| `telemetry.ping.received` | Persist the raw event, new progress and computed recommendations in Cassandra |
+| `interaction.rating.added` | Persist the raw event, rating, preference and computed recommendations in Cassandra |
 
-The worker persists first and projects second. If Cassandra is unavailable the message is retried and the read model is never advanced ahead of the durable state.
-
-### 4.4 Read-model rebuild
-
-The Redis read model is disposable. `POST /admin/rebuild` and `POST /admin/rebuild/{profile_id}` rebuild it from Cassandra, recalculating progress, preferences and recommendations. The endpoints require the `X-Admin-Token` header and are not routed through Kong. The rebuild can also run on startup with `REBUILD_ON_STARTUP=true` (disabled by default).
+Workers write only to Cassandra. If Cassandra is unavailable the message is retried; Redis remains unchanged until the Catalog & Home Service rebuilds a cache miss.
 
 ---
 
@@ -512,18 +509,19 @@ The Redis read model is disposable. `POST /admin/rebuild` and `POST /admin/rebui
 ### Feature 2: Home screen in milliseconds from cache
 
 - **WHEN** a client calls `GET /api/v1/home` and the view exists in Redis **THEN** the system returns `200` with `source: "cache"` in under 20 ms and runs no relational query.
-- **WHEN** the view is not in Redis **THEN** the system answers from MongoDB with `source: "fallback"` and does not run JOINs.
-- **WHEN** Redis and MongoDB are both down **THEN** the system returns `503` with a standard error body.
+- **WHEN** the view is not in Redis **THEN** the system rebuilds Home from MongoDB and Cassandra, populates Redis, and returns the personalized result.
+- **WHEN** concurrent requests miss for the same profile **THEN** only one request rebuilds the view.
+- **WHEN** a dependency needed for a cache miss is down **THEN** the system returns `503` with a standard error body.
 - **WHEN** the token has no `profile_id` **THEN** the system returns `403` with `PROFILE_NOT_SELECTED`.
 - **WHEN** a heavy load of pings is being processed **THEN** `GET /api/v1/home` keeps the same latency, because ingestion does not use the catalog connections.
 
 ### Feature 3: Massive, decoupled telemetry ingestion
 
 - **WHEN** a client sends `POST /api/v1/telemetry/ping` with a valid body **THEN** the Telemetry Service publishes `telemetry.ping.received` and returns `202` without waiting for any worker or database.
-- **WHEN** the same `event_id` is received twice **THEN** the worker processes it once, both in Cassandra (primary key `event_id`) and in Redis.
+- **WHEN** the same `event_id` is received twice **THEN** Cassandra upserts are idempotent and Redis is not written by the worker.
 - **WHEN** a ping with an older `timestamp` is processed after a newer one **THEN** the stored progress does not change, even at the Cassandra level.
-- **WHEN** the worker processes an event **THEN** it persists the state in Cassandra before projecting it into Redis.
-- **WHEN** Redis loses a key or the cache is evicted **THEN** the read model can be rebuilt from Cassandra with `POST /admin/rebuild`.
+- **WHEN** the worker processes an event **THEN** all durable state and computed recommendations are written to Cassandra only.
+- **WHEN** Redis loses a key or the cache entry expires **THEN** the Catalog & Home Service rebuilds the view from MongoDB and Cassandra on the next request.
 - **WHEN** the worker fails to process a message 3 times **THEN** the message is moved to `telemetry.progress.dlq`.
 - **WHEN** RabbitMQ does not confirm the publication **THEN** the service returns `503` and the client retries with the same `event_id`.
 - **WHEN** the Recommendation Worker is down **THEN** the API keeps returning `202` and the messages wait in the queue until the worker is back.
@@ -531,14 +529,14 @@ The Redis read model is disposable. `POST /admin/rebuild` and `POST /admin/rebui
 ### Feature 4: Background processing of Like / Dislike
 
 - **WHEN** a client sends `POST /api/v1/interactions/like` with `LIKE` or `DISLIKE` **THEN** the system returns `202` and publishes `interaction.rating.added`.
-- **WHEN** the worker consumes the event **THEN** it updates the profile preferences and refreshes the recommendations in the Home view.
+- **WHEN** the worker consumes the event **THEN** it updates the profile preferences and persists computed recommendations in Cassandra.
 - **WHEN** a profile rates the same title twice **THEN** the rating with the newest `timestamp` is the one used.
 - **WHEN** the `rating` value is not `LIKE` or `DISLIKE` **THEN** the system returns `400`.
 
 ### Feature 5: Traceability of latency in the initial requests
 
 - **WHEN** a request enters the Gateway without `X-Correlation-ID` **THEN** the Gateway generates one and forwards it to every service.
-- **WHEN** a request crosses Gateway, Catalog & Home Service and Redis or MongoDB **THEN** Jaeger shows a single trace with one span per hop and its duration.
+- **WHEN** a request crosses Gateway, Catalog & Home Service, Redis, MongoDB or Cassandra **THEN** Jaeger shows a single trace with one span per hop and its duration.
 - **WHEN** an event is published **THEN** its headers carry `X-Correlation-ID` and `traceparent`, so the worker spans join the trace of the original request.
 - **WHEN** the Home screen is slow **THEN** an engineer can search Jaeger or Loki by `correlation_id` and find the component that adds the latency.
 - **WHEN** any error response is returned **THEN** its body includes the `correlation_id`.
@@ -549,7 +547,7 @@ The Redis read model is disposable. `POST /admin/rebuild` and `POST /admin/rebui
 
 These points are not defined yet and will be settled with an ADR or in this file before the implementation:
 
-- **Durability of progress and ratings (resolved):** the durable source of truth is the Interactions DB (Cassandra) defined in ADR 006 and section 2.8. Redis keeps only a disposable read model that is rebuilt from Cassandra; ratings are no longer stored in MongoDB.
+- **Durability of interactions and cache refresh (resolved):** Cassandra is authoritative as defined in ADR 006 and amended by ADR 007. Workers do not write to Redis; Catalog rebuilds expiring cache entries on demand from MongoDB and Cassandra.
 - **Programming language of each service:** to be decided in Wave 2. The services implemented so far use Java 21 with Spring Boot.
 - **Rate limit values and token lifetime:** the values shown here (3600 s token) are the initial proposal.
 - **Suggestion engine:** the default strategy uses persisted interaction affinity (likes, dislikes and watch history) because the catalog is owned by another module. Genre-based weighting can replace it through the `RecommendationStrategy` port.

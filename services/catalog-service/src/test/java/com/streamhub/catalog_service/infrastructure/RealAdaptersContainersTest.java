@@ -1,7 +1,9 @@
 package com.streamhub.catalog_service.infrastructure;
 
 import org.bson.Document;
+import com.datastax.oss.driver.api.core.CqlSession;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -17,15 +19,17 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mongodb.MongoDBContainer;
 
+import java.time.Duration;
 import java.util.List;
+import java.net.InetSocketAddress;
+import java.util.concurrent.TimeUnit;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * The whole service against a real Redis and a real MongoDB. The Redis value is exactly what the
- * Recommendation Worker's HomeProjection writes; the titles have the shape of spec.md 2.3.
+ * The whole service against real Redis, MongoDB and Cassandra containers.
  * Skipped when Docker is not available.
  */
 @Testcontainers(disabledWithoutDocker = true)
@@ -39,11 +43,42 @@ class RealAdaptersContainersTest {
     @Container
     static final MongoDBContainer MONGO = new MongoDBContainer("mongo:7");
 
+    @Container
+    static final GenericContainer<?> CASSANDRA = new GenericContainer<>("cassandra:4.1")
+            .withExposedPorts(9042)
+            .withStartupTimeout(Duration.ofMinutes(3));
+
     @DynamicPropertySource
     static void connections(DynamicPropertyRegistry registry) {
         registry.add("spring.data.redis.host", REDIS::getHost);
         registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
         registry.add("spring.mongodb.uri", () -> MONGO.getReplicaSetUrl("streamhub"));
+        registry.add("spring.cassandra.contact-points", CASSANDRA::getHost);
+        registry.add("spring.cassandra.port", () -> CASSANDRA.getMappedPort(9042));
+        registry.add("spring.cassandra.local-datacenter", () -> "datacenter1");
+        registry.add("spring.cassandra.keyspace-name", () -> "streamhub");
+    }
+
+    @BeforeAll
+    static void createInteractionsSchema() {
+        try (CqlSession session = CqlSession.builder()
+                .addContactPoint(new InetSocketAddress(CASSANDRA.getHost(), CASSANDRA.getMappedPort(9042)))
+                .withLocalDatacenter("datacenter1")
+                .build()) {
+            session.execute("""
+                    CREATE KEYSPACE streamhub WITH replication =
+                    {'class': 'SimpleStrategy', 'replication_factor': 1}
+                    """);
+            session.execute("""
+                    CREATE TABLE streamhub.progress_by_profile (
+                      profile_id text, content_id text, episode_id text, progress_seconds int,
+                      last_event_timestamp timestamp, PRIMARY KEY ((profile_id), content_id))
+                    """);
+            session.execute("""
+                    CREATE TABLE streamhub.recommendations_by_profile (
+                      profile_id text PRIMARY KEY, content_ids list<text>, generated_at timestamp)
+                    """);
+        }
     }
 
     @Autowired
@@ -52,10 +87,14 @@ class RealAdaptersContainersTest {
     private StringRedisTemplate redis;
     @Autowired
     private MongoTemplate mongo;
+    @Autowired
+    private CqlSession cassandra;
 
     @BeforeEach
     void seed() {
         redis.getConnectionFactory().getConnection().serverCommands().flushAll();
+        cassandra.execute("TRUNCATE streamhub.progress_by_profile");
+        cassandra.execute("TRUNCATE streamhub.recommendations_by_profile");
         mongo.dropCollection("titles");
         title("mov_1", "Title One", 1);
         title("mov_2", "Title Two", 2);
@@ -81,7 +120,7 @@ class RealAdaptersContainersTest {
     }
 
     @Test
-    void aViewWrittenByTheWorkerIsAnsweredFromTheCacheAndCompletedWithTrending() throws Exception {
+    void aLegacyCachedViewIsAnsweredFromRedisAndCompletedWithTrending() throws Exception {
         mvc.perform(get("/api/v1/home").header(HttpHeaders.AUTHORIZATION, bearer("prof_9921")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.source").value("cache"))
@@ -97,11 +136,36 @@ class RealAdaptersContainersTest {
     }
 
     @Test
-    void aProfileWithoutViewGetsTheFallbackFromMongoDb() throws Exception {
+    void aProfileWithoutViewRebuildsFromMongoAndCassandra() throws Exception {
         mvc.perform(get("/api/v1/home").header(HttpHeaders.AUTHORIZATION, bearer("prof_0000")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.source").value("fallback"))
                 .andExpect(jsonPath("$.categories[0].titles[0].content_id").value("mov_1"));
+    }
+
+    @Test
+    void aCacheMissRebuildsAndStoresContinueWatchingSeparately() throws Exception {
+        cassandra.execute("""
+                INSERT INTO streamhub.progress_by_profile
+                  (profile_id, content_id, episode_id, progress_seconds, last_event_timestamp)
+                VALUES ('prof_new', 'mov_8832', 'ep_102', 1420, '2026-10-06T19:58:00Z')
+                """);
+        cassandra.execute("""
+                INSERT INTO streamhub.recommendations_by_profile (profile_id, content_ids, generated_at)
+                VALUES ('prof_new', ['mov_77'], '2026-10-06T19:58:00Z')
+                """);
+
+        mvc.perform(get("/api/v1/home").header(HttpHeaders.AUTHORIZATION, bearer("prof_new")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.source").value("fallback"))
+                .andExpect(jsonPath("$.continue_watching[0].content_id").value("mov_8832"))
+                .andExpect(jsonPath("$.recommended[0].content_id").value("mov_77"));
+
+        org.junit.jupiter.api.Assertions.assertNotNull(redis.opsForValue().get("home:prof_new"));
+        org.junit.jupiter.api.Assertions.assertTrue(redis.opsForValue().get("home:prof_new").indexOf("continue_watching") < 0);
+        org.junit.jupiter.api.Assertions.assertTrue(redis.opsForValue().get("continue:prof_new").contains("mov_8832"));
+        org.junit.jupiter.api.Assertions.assertTrue(redis.getExpire("home:prof_new", TimeUnit.SECONDS) > 0);
+        org.junit.jupiter.api.Assertions.assertTrue(redis.getExpire("continue:prof_new", TimeUnit.SECONDS) > 0);
     }
 
     @Test
