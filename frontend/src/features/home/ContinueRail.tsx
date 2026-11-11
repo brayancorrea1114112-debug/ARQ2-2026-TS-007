@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { HomeView } from "@/shared/api/contracts";
 import { formatTime, progressPercent } from "@/shared/lib/format";
 import { Poster } from "@/shared/ui/Poster";
+import { SectionHeading } from "@/shared/ui/SectionHeading";
 import { titleOrStub } from "@/features/home/lookup";
 
 export function ContinueRail({ home }: { home: HomeView }) {
@@ -11,11 +12,8 @@ export function ContinueRail({ home }: { home: HomeView }) {
   }
 
   return (
-    <section className="mx-auto w-full max-w-6xl px-6 py-7">
-      <div className="flex items-baseline justify-between gap-4 border-b border-line pb-3">
-        <h2 className="font-display text-2xl text-paper">Seguir viendo</h2>
-        <span className="text-xs text-paper-muted">Tu progreso guardado</span>
-      </div>
+    <section className="mx-auto w-full max-w-6xl px-6 py-8">
+      <SectionHeading heading="Seguir viendo" aside="Tu progreso guardado" />
 
       <ul className="rail mt-5 flex snap-x gap-4 overflow-x-auto pb-2">
         {items.map((item) => {
@@ -27,22 +25,25 @@ export function ContinueRail({ home }: { home: HomeView }) {
           return (
             <li
               key={`${item.content_id}-${item.episode_id ?? "main"}`}
-              className="w-[176px] shrink-0 snap-start sm:w-[196px]"
+              className="w-[240px] shrink-0 snap-start sm:w-[272px]"
             >
               <Link
                 href={`/watch/${item.content_id}?t=${item.progress_seconds}`}
-                className="group block rounded-card"
+                className="group block rounded-hoja"
               >
-                <Poster
-                  contentId={item.content_id}
-                  name={title.name}
-                  poster={title.poster}
-                  progress={percent}
-                />
-                <p className="mt-2 line-clamp-1 text-sm text-paper transition-colors group-hover:text-brass">
+                <div className="transition-transform duration-150 group-hover:-translate-y-0.5">
+                  <Poster
+                    contentId={item.content_id}
+                    name={title.name}
+                    poster={title.poster}
+                    progress={percent}
+                    ratio="wide"
+                  />
+                </div>
+                <p className="mt-2 line-clamp-1 text-sm font-medium text-tinta transition-colors duration-150 group-hover:text-azul">
                   {title.name}
                 </p>
-                <p className="mt-1 text-xs text-paper-muted tabular-nums">
+                <p className="mt-1 text-xs text-tinta-tenue tabular-nums">
                   {formatTime(item.progress_seconds)} vistos
                   {item.episode_id ? ` · ${item.episode_id}` : ""}
                 </p>

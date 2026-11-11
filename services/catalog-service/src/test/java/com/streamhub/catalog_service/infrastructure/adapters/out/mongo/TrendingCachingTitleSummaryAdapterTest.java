@@ -106,8 +106,19 @@ class TrendingCachingTitleSummaryAdapterTest {
     }
 
     @Test
-    void titlesByIdAreNeverCached() {
+    void titlesByIdAreQueriedOnceWhileTheyAreFresh() {
         adapter.findByIds(List.of("mov_1"));
+        clock.advance(Duration.ofSeconds(59));
+        List<TitleSummary> second = adapter.findByIds(List.of("mov_1"));
+
+        assertEquals(List.of(ONE), second);
+        assertEquals(1, catalog.byIdsCalls);
+    }
+
+    @Test
+    void titlesByIdAreQueriedAgainWhenTheyExpire() {
+        adapter.findByIds(List.of("mov_1"));
+        clock.advance(Duration.ofSeconds(60));
         adapter.findByIds(List.of("mov_1"));
 
         assertEquals(2, catalog.byIdsCalls);

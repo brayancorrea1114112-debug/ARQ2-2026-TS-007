@@ -1,45 +1,64 @@
 @import "tailwindcss";
 
+/*
+  Hoja de cuaderno: papel frío con cuadrícula, tinta azul marino, azul de
+  bolígrafo para actuar y un marcador naranja que solo señala el progreso.
+  La pizarra (azul casi negro) se reserva para las pantallas de video.
+*/
 :root {
-  --ink-950: #0b0f14;
-  --ink-900: #111821;
-  --ink-850: #151e28;
-  --ink-800: #1a2430;
-  --ink-700: #263241;
-  --line: #2b3746;
-  --paper: #f3ede3;
-  --paper-muted: #a7b0ba;
-  --brass: #e8b04b;
-  --brass-strong: #f4c979;
-  --signal: #e2574c;
-  --mint: #86c7b7;
-  --radius-card: 3px;
+  --hoja: #f2f4f8;
+  --hoja-2: #ffffff;
+  --hoja-3: #e7ebf3;
+  --regla: rgba(16, 24, 72, 0.14);
+  --regla-fuerte: rgba(16, 24, 72, 0.3);
+  --cuadricula: rgba(36, 51, 232, 0.055);
+  --tinta: #101848;
+  --tinta-suave: #4a5280;
+  --tinta-tenue: #666d94;
+  --azul: #2433e8;
+  --azul-fuerte: #1b27bd;
+  --azul-claro: #e6e9fd;
+  --marcador: #ff5b2e;
+  --marcador-texto: #c33a12;
+  --pizarra: #0b1030;
+  --pizarra-2: #151c4a;
+  --tiza: #f1f3ff;
+  --error: #c42b2b;
+  --menta: #0c8f6a;
+  --menta-claro: #def4ec;
 }
 
 @theme inline {
-  --color-ink-950: var(--ink-950);
-  --color-ink-900: var(--ink-900);
-  --color-ink-850: var(--ink-850);
-  --color-ink-800: var(--ink-800);
-  --color-ink-700: var(--ink-700);
-  --color-line: var(--line);
-  --color-paper: var(--paper);
-  --color-paper-muted: var(--paper-muted);
-  --color-brass: var(--brass);
-  --color-brass-strong: var(--brass-strong);
-  --color-signal: var(--signal);
-  --color-mint: var(--mint);
-  --font-display: var(--font-fraunces), Georgia, "Times New Roman", serif;
-  --font-sans: var(--font-instrument), system-ui, sans-serif;
-  --radius-card: 3px;
-  --animate-rise: rise 650ms cubic-bezier(0.16, 1, 0.3, 1) both;
-  --animate-fade: fade 420ms ease-out both;
+  --color-hoja: var(--hoja);
+  --color-hoja-2: var(--hoja-2);
+  --color-hoja-3: var(--hoja-3);
+  --color-regla: var(--regla);
+  --color-regla-fuerte: var(--regla-fuerte);
+  --color-tinta: var(--tinta);
+  --color-tinta-suave: var(--tinta-suave);
+  --color-tinta-tenue: var(--tinta-tenue);
+  --color-azul: var(--azul);
+  --color-azul-fuerte: var(--azul-fuerte);
+  --color-azul-claro: var(--azul-claro);
+  --color-marcador: var(--marcador);
+  --color-marcador-texto: var(--marcador-texto);
+  --color-pizarra: var(--pizarra);
+  --color-pizarra-2: var(--pizarra-2);
+  --color-tiza: var(--tiza);
+  --color-error: var(--error);
+  --color-menta: var(--menta);
+  --color-menta-claro: var(--menta-claro);
+  --font-display: var(--font-archivo), "Arial Narrow", system-ui, sans-serif;
+  --font-sans: var(--font-geist), system-ui, sans-serif;
+  --radius-hoja: 6px;
+  --animate-rise: rise 420ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  --animate-scan: scan 1.4s cubic-bezier(0.77, 0, 0.175, 1) infinite alternate;
 }
 
 @keyframes rise {
   from {
     opacity: 0;
-    transform: translateY(14px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -47,32 +66,27 @@
   }
 }
 
-@keyframes fade {
+@keyframes scan {
   from {
-    opacity: 0;
+    left: 0;
   }
   to {
-    opacity: 1;
+    left: calc(100% - 3px);
   }
 }
 
 @layer base {
   html {
-    color-scheme: dark;
-    scroll-behavior: smooth;
-  }
-
-  html {
+    color-scheme: light;
     -webkit-text-size-adjust: 100%;
   }
 
   body {
-    background-color: var(--ink-950);
-    color: var(--paper);
+    background-color: var(--hoja);
+    color: var(--tinta);
     overflow-x: hidden;
-    font-family: var(--font-instrument), system-ui, sans-serif;
-    font-feature-settings: "ss01" 1;
-    text-rendering: optimizeLegibility;
+    font-family: var(--font-geist), system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
     -webkit-tap-highlight-color: transparent;
   }
 
@@ -87,12 +101,12 @@
   }
 
   ::selection {
-    background: var(--brass);
-    color: var(--ink-950);
+    background: var(--azul);
+    color: #fff;
   }
 
   :focus-visible {
-    outline: 2px solid var(--brass);
+    outline: 2px solid var(--azul);
     outline-offset: 3px;
   }
 
@@ -112,15 +126,32 @@
     display: none;
   }
 
-  .hairline {
-    border-color: var(--line);
+  /* Titulares: Archivo condensado y pesado, como la cabecera de un horario. */
+  .titular {
+    font-family: var(--font-archivo), "Arial Narrow", system-ui, sans-serif;
+    font-stretch: 72%;
+    font-weight: 800;
+    letter-spacing: -0.015em;
+    line-height: 0.95;
   }
 
-  .screen-grain {
+  /* Papel cuadriculado. */
+  .papel {
     background-image:
-      radial-gradient(circle at 20% 15%, rgba(232, 176, 75, 0.09), transparent 42%),
-      radial-gradient(circle at 82% 0%, rgba(134, 199, 183, 0.07), transparent 38%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 30%);
+      linear-gradient(var(--cuadricula) 1px, transparent 1px),
+      linear-gradient(90deg, var(--cuadricula) 1px, transparent 1px);
+    background-size: 28px 28px;
+    background-position: -1px -1px;
+  }
+
+  /* Superficies oscuras: el foco y la selección cambian a tiza. */
+  .pizarra-zona :focus-visible {
+    outline-color: var(--tiza);
+  }
+
+  .pizarra-zona ::selection {
+    background: var(--tiza);
+    color: var(--pizarra);
   }
 }
 

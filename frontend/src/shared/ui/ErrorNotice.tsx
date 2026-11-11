@@ -16,15 +16,15 @@ export function ErrorNotice({
     <div
       role="alert"
       className={cn(
-        "border-l-2 border-signal bg-ink-900/70 px-4 py-3",
+        "rounded-hoja border border-l-4 border-regla border-l-error bg-hoja-2 px-4 py-3 text-tinta",
         className,
       )}
     >
-      <p className="text-sm text-paper">{message}</p>
+      <p className="text-sm font-medium">{message}</p>
       {correlationId ? (
-        <p className="mt-1 text-xs text-paper-muted">
+        <p className="mt-1 text-xs text-tinta-suave">
           Si necesitas soporte, comparte este identificador:{" "}
-          <span className="break-all text-paper-muted">{correlationId}</span>
+          <span className="break-all">{correlationId}</span>
         </p>
       ) : null}
       {onRetry ? (
@@ -34,7 +34,8 @@ export function ErrorNotice({
           className={buttonStyles({
             variant: "ghost",
             size: "sm",
-            className: "mt-2 px-0",
+            className:
+              "mt-2 px-0 text-azul hover:bg-transparent hover:text-azul-fuerte",
           })}
         >
           Reintentar

@@ -43,6 +43,7 @@ The solution has two rules:
 
 - **Authentication:** every endpoint except `POST /api/v1/auth/login` requires `Authorization: Bearer <JWT>`. The Gateway validates the signature and expiration before forwarding the request.
 - **Two token types:** an *account token* (claim `sub` = account id) is returned by login. A *profile token* (claims `sub` = account id and `profile_id`) is returned by profile selection. Endpoints for Home, telemetry and interactions require a profile token.
+- **Token signature:** tokens are signed with HS256 and a secret shared by the Auth & Profile Service, the services that verify them and Kong. The `iss` claim is `streamhub-auth`, which Kong uses to find the credential.
 - **Correlation:** every request carries `X-Correlation-ID` (UUID v4). The Gateway generates it if missing. It is propagated through HTTP calls, copied into the headers of every published event, and written in every log line.
 - **Tracing:** services propagate the W3C `traceparent` header and export spans with OpenTelemetry to Jaeger.
 - **Content type:** `application/json; charset=utf-8`. Timestamps use ISO 8601 UTC.
@@ -207,7 +208,7 @@ Responses:
 
 ```json
 {
-  "access_token": "eyJhbGciOiJSUzI1NiIs...",
+  "access_token": "eyJhbGciOiJIUzI1NiJ9...",
   "token_type": "Bearer",
   "expires_in": 3600,
   "account": { "account_id": "9c3d1f6e-1b0a-4f64-a1d1-0a8f5a0b7c21", "email": "ana@example.com" }
@@ -268,7 +269,7 @@ Responses:
 
 ```json
 {
-  "access_token": "eyJhbGciOiJSUzI1NiIs...",
+  "access_token": "eyJhbGciOiJIUzI1NiJ9...",
   "token_type": "Bearer",
   "expires_in": 3600,
   "profile": { "profile_id": "prof_9921", "name": "Ana", "type": "ADULT" }
@@ -444,7 +445,7 @@ Delivery guarantees:
 - **Delivery:** at-least-once. The producer uses publisher confirms. The consumer uses broker-managed acknowledgment after processing, with automatic retries before the message is rejected to the DLQ.
 - **Idempotency:** the worker inserts into the Cassandra table `events_by_id`, whose primary key is `event_id`. A duplicate is a no-op at the durable level; Redis is not the idempotency store.
 - **Ordering:** global ordering is not guaranteed. Progress writes use `USING TIMESTAMP` with the event timestamp, so an old ping never overwrites a newer one, even if it arrives later or is redelivered.
-- **Retries:** up to 3 attempts with exponential backoff (1 s, 5 s, 30 s). After that the message goes to `telemetry.progress.dlq` for inspection.
+- **Retries:** up to 3 attempts with exponential backoff (waits of 1 s and 5 s). After that the message goes to `telemetry.progress.dlq` for inspection.
 
 ### 4.2 interaction.rating.added
 

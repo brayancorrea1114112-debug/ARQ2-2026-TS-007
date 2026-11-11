@@ -9,7 +9,7 @@ import com.streamhub.telemetry_service.domain.model.RatingCommand;
 
 /**
  * The service does not persist anything: it validates the profile and publishes the event.
- * The recommendation worker owns Cassandra and the Redis projection (ADR 002 and ADR 006).
+ * The recommendation worker owns Cassandra (ADR 002, ADR 006 and ADR 007).
  */
 public class TelemetryIngestionService implements IngestTelemetryUseCase {
 

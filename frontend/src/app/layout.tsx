@@ -1,23 +1,24 @@
 import type { Metadata, Viewport } from "next";
-import { Fraunces, Instrument_Sans } from "next/font/google";
+import { Archivo, Geist } from "next/font/google";
 import { Providers } from "./providers";
 import "./globals.css";
 
-const fraunces = Fraunces({
+const archivo = Archivo({
   subsets: ["latin"],
-  variable: "--font-fraunces",
+  axes: ["wdth"],
+  variable: "--font-archivo",
   display: "swap",
 });
 
-const instrument = Instrument_Sans({
+const geist = Geist({
   subsets: ["latin"],
-  variable: "--font-instrument",
+  variable: "--font-geist",
   display: "swap",
 });
 
 export const viewport: Viewport = {
-  themeColor: "#0b0f14",
-  colorScheme: "dark",
+  themeColor: "#f2f4f8",
+  colorScheme: "light",
 };
 
 export const metadata: Metadata = {
@@ -26,7 +27,7 @@ export const metadata: Metadata = {
     template: "%s — StreamHub",
   },
   description:
-    "StreamHub reúne a la familia frente a la pantalla: perfiles, historial y recomendaciones listas cuando llega la noche.",
+    "StreamHub reúne a la familia frente a la pantalla: perfiles, historial, recomendaciones y tus clases grabadas.",
 };
 
 export default function RootLayout({
@@ -36,15 +37,15 @@ export default function RootLayout({
     <html
       lang="es"
       data-scroll-behavior="smooth"
-      className={`${fraunces.variable} ${instrument.variable} h-full antialiased`}
+      className={`${archivo.variable} ${geist.variable} h-full antialiased`}
     >
       <body
         suppressHydrationWarning
-        className="flex min-h-dvh flex-col bg-ink-950 text-paper"
+        className="flex min-h-dvh flex-col bg-hoja text-tinta"
       >
         <a
           href="#main"
-          className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:rounded-card focus:bg-brass focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-ink-950"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:rounded-hoja focus:bg-azul focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white"
         >
           Saltar al contenido
         </a>

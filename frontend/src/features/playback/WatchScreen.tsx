@@ -6,6 +6,9 @@ import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useSessionStore } from "@/features/auth/session";
 import { useAuthFailure } from "@/features/auth/useAuthFailure";
+import { claseVideoUrl, type Clase } from "@/features/clases/api";
+import { claseDateParts, isClaseId } from "@/features/clases/format";
+import { useClases } from "@/features/clases/useClases";
 import { getHome } from "@/features/home/api";
 import {
   continueWatchingFor,
@@ -33,6 +36,15 @@ import {
 
 const FALLBACK_DURATION_SECONDS = 5400;
 
+/** Todo el reproductor vive sobre la pizarra: la sala se oscurece al empezar. */
+function Stage({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="pizarra-zona flex min-h-dvh flex-1 flex-col bg-pizarra text-tiza">
+      {children}
+    </div>
+  );
+}
+
 export function WatchScreen() {
   const params = useParams<{ id: string | string[] }>();
   const searchParams = useSearchParams();
@@ -54,10 +66,10 @@ export function WatchScreen() {
 
   if (homeQuery.isLoading) {
     return (
-      <>
+      <Stage>
         <PlayerTopBar contentId={contentId} />
         <ScreenLoader label="Preparando el reproductor" />
-      </>
+      </Stage>
     );
   }
 
@@ -65,10 +77,10 @@ export function WatchScreen() {
     const apiError =
       homeQuery.error instanceof ApiError ? homeQuery.error : null;
     return (
-      <>
+      <Stage>
         <PlayerTopBar contentId={contentId} />
         <main id="main" className="mx-auto w-full max-w-3xl px-6 py-16">
-          <h1 className="font-display text-4xl text-paper">
+          <h1 className="titular text-5xl text-tiza">
             No pudimos abrir el reproductor
           </h1>
           <ErrorNotice
@@ -81,36 +93,35 @@ export function WatchScreen() {
           />
           <Link
             href="/home"
-            className={buttonStyles({ variant: "secondary", className: "mt-6" })}
+            className={buttonStyles({ variant: "tiza", className: "mt-6" })}
           >
             Volver al inicio
           </Link>
         </main>
-      </>
+      </Stage>
     );
   }
 
   const home = homeQuery.data;
   if (!home || !contentId) {
     return (
-      <>
+      <Stage>
         <PlayerTopBar contentId={contentId} />
         <main id="main" className="mx-auto w-full max-w-3xl px-6 py-16">
-          <h1 className="font-display text-4xl text-paper">
+          <h1 className="titular text-5xl text-tiza">
             No encontramos este título
           </h1>
           <Link
             href="/home"
-            className={buttonStyles({ variant: "secondary", className: "mt-6" })}
+            className={buttonStyles({ variant: "tiza", className: "mt-6" })}
           >
             Volver al inicio
           </Link>
         </main>
-      </>
+      </Stage>
     );
   }
 
-  const title = titleOrStub(home, contentId);
   const resume = continueWatchingFor(home, contentId);
   const fromQuery = Number(searchParams.get("t"));
   const initialProgress =
@@ -118,14 +129,156 @@ export function WatchScreen() {
       ? fromQuery
       : (resume?.progress_seconds ?? 0);
 
+  if (isClaseId(contentId)) {
+    return (
+      <Stage>
+        <ClaseWatch
+          contentId={contentId}
+          token={token as string}
+          initialProgress={initialProgress}
+        />
+      </Stage>
+    );
+  }
+
+  const title = titleOrStub(home, contentId);
+
   return (
-    <Player
-      contentId={contentId}
-      token={token as string}
-      title={title}
-      resume={resume}
+    <Stage>
+      <Player
+        contentId={contentId}
+        token={token as string}
+        title={title}
+        resume={resume}
+        initialProgress={initialProgress}
+      />
+    </Stage>
+  );
+}
+
+function ClaseWatch({
+  contentId,
+  token,
+  initialProgress,
+}: {
+  contentId: string;
+  token: string;
+  initialProgress: number;
+}) {
+  const clasesQuery = useClases();
+  const clase = clasesQuery.data?.find((item) => item.id === contentId);
+
+  if (clasesQuery.isLoading) {
+    return (
+      <>
+        <PlayerTopBar backHref="/clases" backLabel="Volver a las clases" />
+        <ScreenLoader label="Preparando la clase" />
+      </>
+    );
+  }
+
+  if (!clase) {
+    return (
+      <>
+        <PlayerTopBar backHref="/clases" backLabel="Volver a las clases" />
+        <main id="main" className="mx-auto w-full max-w-3xl px-6 py-16">
+          <h1 className="titular text-5xl text-tiza">
+            No encontramos esta clase
+          </h1>
+          <p className="mt-4 max-w-md text-sm text-tiza/70">
+            Puede que la grabación ya no esté en la carpeta de clases.
+          </p>
+          <Link
+            href="/clases"
+            className={buttonStyles({ variant: "tiza", className: "mt-6" })}
+          >
+            Ver todas las clases
+          </Link>
+        </main>
+      </>
+    );
+  }
+
+  return (
+    <ClasePlayer
+      clase={clase}
+      token={token}
       initialProgress={initialProgress}
     />
+  );
+}
+
+function ClasePlayer({
+  clase,
+  token,
+  initialProgress,
+}: {
+  clase: Clase;
+  token: string;
+  initialProgress: number;
+}) {
+  const [progress, setProgress] = useState(initialProgress);
+  const [playing, setPlaying] = useState(false);
+
+  const telemetry = usePlaybackTelemetry({
+    token,
+    contentId: clase.id,
+    playing,
+    progressSeconds: progress,
+  });
+
+  const parts = claseDateParts(clase.date, clase.time);
+
+  return (
+    <main id="main" className="flex flex-1 flex-col">
+      <PlayerTopBar
+        backHref="/clases"
+        backLabel="Volver a las clases"
+        note={`Clase ${clase.session}`}
+      />
+
+      <div className="mx-auto w-full max-w-6xl px-6 py-8">
+        <video
+          src={claseVideoUrl(clase.id)}
+          controls
+          playsInline
+          preload="metadata"
+          aria-label={`Video de la clase ${clase.session}`}
+          className="aspect-video w-full rounded-hoja bg-black"
+          onLoadedMetadata={(event) => {
+            if (initialProgress > 0) {
+              event.currentTarget.currentTime = initialProgress;
+            }
+          }}
+          onTimeUpdate={(event) =>
+            setProgress(Math.floor(event.currentTarget.currentTime))
+          }
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+          onEnded={() => setPlaying(false)}
+        />
+
+        <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-tiza/70">{clase.title}</p>
+            <h1 className="titular mt-2 text-5xl text-tiza sm:text-6xl">
+              Clase {clase.session}
+            </h1>
+            <p className="mt-3 text-sm text-tiza/70">
+              {parts.long}, {parts.time}
+            </p>
+          </div>
+          <TelemetryBadge status={telemetry.status} />
+        </div>
+
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-tiza/15 pt-5">
+          <RatingButtons contentId={clase.id} tone="dark" />
+          <p className="text-xs text-tiza/60 tabular-nums">
+            Vas en {formatTime(progress)}
+          </p>
+        </div>
+      </div>
+    </main>
   );
 }
 
@@ -199,14 +352,15 @@ function Player({
 
       <div className="mx-auto w-full max-w-5xl px-6 py-8">
         <div
-          className="relative aspect-video overflow-hidden rounded-card border border-line"
+          className="relative aspect-video overflow-hidden rounded-hoja bg-pizarra-2"
           style={{
-            background: `radial-gradient(110% 140% at 78% 18%, hsla(${hue}, 44%, 32%, 0.75), transparent 62%), linear-gradient(160deg, #111821, #0b0f14 70%)`,
+            backgroundImage: `radial-gradient(110% 140% at 80% 10%, hsla(${hue}, 70%, 50%, 0.55), transparent 62%), linear-gradient(rgba(241, 243, 255, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(241, 243, 255, 0.05) 1px, transparent 1px)`,
+            backgroundSize: "auto, 32px 32px, 32px 32px",
           }}
         >
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute -top-6 left-6 font-display text-[12rem] leading-none text-paper/[0.05]"
+            className="titular pointer-events-none absolute -bottom-8 left-6 text-[16rem] leading-none text-tiza/10"
           >
             {title.name.charAt(0)}
           </span>
@@ -217,13 +371,13 @@ function Player({
             className="absolute inset-0 flex items-center justify-center"
             aria-label={playing ? "Pausar" : "Reproducir"}
           >
-            <span className="flex h-20 w-20 items-center justify-center rounded-full border border-brass/60 bg-ink-950/70 text-brass backdrop-blur transition-colors hover:bg-ink-950">
+            <span className="flex h-20 w-20 items-center justify-center rounded-full bg-tiza text-pizarra transition-transform duration-150 hover:scale-105 active:scale-95">
               {playing ? <PauseIcon /> : <PlayIcon />}
             </span>
           </button>
 
           {!playing ? (
-            <p className="absolute bottom-4 left-4 text-xs text-paper-muted">
+            <p className="absolute bottom-4 left-4 text-xs text-tiza/70">
               Pulsa para {progress > 0 ? "continuar" : "empezar"}
             </p>
           ) : null}
@@ -231,11 +385,11 @@ function Player({
 
         <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="font-display text-4xl leading-none text-paper">
+            <h1 className="titular text-5xl text-tiza sm:text-6xl">
               {title.name}
             </h1>
             {hasMetadata ? (
-              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-paper-muted tabular-nums">
+              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-tiza/70 tabular-nums">
                 {title.age_rating ? <span>{title.age_rating}</span> : null}
                 {durationLabel ? <span>{durationLabel}</span> : null}
                 {resume?.episode_id ? <span>{resume.episode_id}</span> : null}
@@ -254,19 +408,19 @@ function Player({
             value={progress}
             onChange={(event) => seek(Number(event.target.value))}
             aria-label="Posición de reproducción"
-            className="w-full accent-brass"
+            className="w-full accent-marcador"
           />
-          <div className="mt-1 flex justify-between text-xs text-paper-muted tabular-nums">
+          <div className="mt-1 flex justify-between text-xs text-tiza/70 tabular-nums">
             <span>{formatTime(progress)}</span>
             <span>{total}</span>
           </div>
         </div>
 
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-line pt-5">
-          <RatingButtons contentId={contentId} />
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-tiza/15 pt-5">
+          <RatingButtons contentId={contentId} tone="dark" />
         </div>
 
-        <p className="mt-6 max-w-xl text-xs text-paper-muted">
+        <p className="mt-6 max-w-xl text-xs text-tiza/60">
           Este reproductor es una vista previa. El video real y el manifiesto se
           conectarán al servicio de catálogo cuando esté disponible.
         </p>
@@ -275,28 +429,33 @@ function Player({
   );
 }
 
-function PlayerTopBar({ contentId }: { contentId?: string }) {
+function PlayerTopBar({
+  contentId,
+  backHref,
+  backLabel,
+  note,
+}: {
+  contentId?: string;
+  backHref?: string;
+  backLabel?: string;
+  note?: string;
+}) {
+  const href = backHref ?? (contentId ? `/title/${contentId}` : "/home");
+  const label =
+    backLabel ?? (contentId ? "Volver al detalle" : "Volver al inicio");
+
   return (
-    <div className="border-b border-line">
+    <div className="border-b border-tiza/15">
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-6 py-3">
-        {contentId ? (
-          <Link
-            href={`/title/${contentId}`}
-            className="text-sm text-paper-muted transition-colors hover:text-paper"
-          >
-            ← Volver al detalle
-          </Link>
-        ) : (
-          <Link
-            href="/home"
-            className="text-sm text-paper-muted transition-colors hover:text-paper"
-          >
-            ← Volver al inicio
-          </Link>
-        )}
-        <Wordmark className="text-xl" href="/home" />
-        <span className="hidden text-xs text-paper-muted sm:inline">
-          Vista previa del reproductor
+        <Link
+          href={href}
+          className="flex min-h-11 items-center text-sm text-tiza/75 transition-colors duration-150 hover:text-tiza"
+        >
+          ← {label}
+        </Link>
+        <Wordmark className="text-2xl" href="/home" tone="dark" />
+        <span className="hidden text-xs text-tiza/60 sm:inline">
+          {note ?? "Vista previa del reproductor"}
         </span>
       </div>
     </div>
@@ -316,7 +475,7 @@ function TelemetryBadge({ status }: { status: TelemetryStatus }) {
       role="status"
       aria-live="polite"
       className={
-        status === "error" ? "text-xs text-signal" : "text-xs text-paper-muted"
+        status === "error" ? "text-xs text-[#ff9c8f]" : "text-xs text-tiza/70"
       }
     >
       {messages[status]}

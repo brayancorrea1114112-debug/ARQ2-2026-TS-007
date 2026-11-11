@@ -139,7 +139,7 @@
       "gridPos": { "h": 12, "w": 24, "x": 0, "y": 37 },
       "datasource": { "type": "loki", "uid": "loki" },
       "targets": [
-        { "refId": "A", "expr": "{service=~\"kong|auth-service|catalog-service|recommendation-worker\"}" }
+        { "refId": "A", "expr": "{service=~\"kong|auth-service|catalog-service|telemetry-service|recommendation-worker\"}" }
       ],
       "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "enableLogDetails": true }
     }

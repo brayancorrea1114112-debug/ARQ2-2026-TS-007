@@ -1,16 +1,16 @@
 import type { ButtonHTMLAttributes } from "react";
 import { cn } from "@/shared/lib/cn";
 
-type Variant = "primary" | "secondary" | "ghost";
+type Variant = "primary" | "secondary" | "ghost" | "tiza";
 type Size = "sm" | "md";
 
 const variants: Record<Variant, string> = {
-  primary:
-    "bg-brass text-ink-950 hover:bg-brass-strong border border-transparent",
+  primary: "border border-transparent bg-azul text-white hover:bg-azul-fuerte",
   secondary:
-    "border border-line bg-ink-900 text-paper hover:border-paper-muted",
+    "border border-regla-fuerte bg-hoja-2 text-tinta hover:border-azul hover:bg-azul-claro",
   ghost:
-    "border border-transparent text-paper-muted hover:text-paper hover:bg-ink-800",
+    "border border-transparent text-tinta-suave hover:bg-hoja-3 hover:text-tinta",
+  tiza: "border border-transparent bg-tiza text-pizarra hover:bg-white",
 };
 
 const sizes: Record<Size, string> = {
@@ -28,7 +28,7 @@ export function buttonStyles({
   className?: string;
 } = {}): string {
   return cn(
-    "inline-flex items-center justify-center gap-2 rounded-card font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+    "inline-flex items-center justify-center gap-2 rounded-hoja font-medium transition-[background-color,border-color,color,transform] duration-150 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100",
     variants[variant],
     sizes[size],
     className,

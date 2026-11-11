@@ -1,19 +1,30 @@
 import Link from "next/link";
 import { cn } from "@/shared/lib/cn";
 
+/** El marcador naranja es la cabeza lectora: la misma marca que indica el progreso. */
 export function Wordmark({
   className,
   href,
+  tone = "light",
 }: {
   className?: string;
   href?: string;
+  tone?: "light" | "dark";
 }) {
   const content = (
     <span
       translate="no"
-      className={cn("font-display tracking-[-0.02em]", className)}
+      className={cn(
+        "titular inline-flex items-baseline",
+        tone === "dark" ? "text-tiza" : "text-tinta",
+        className,
+      )}
     >
-      StreamHub<span className="text-brass">.</span>
+      StreamHub
+      <span
+        aria-hidden="true"
+        className="ml-[0.1em] inline-block h-[0.74em] w-[0.11em] bg-marcador"
+      />
     </span>
   );
 
@@ -24,7 +35,7 @@ export function Wordmark({
   return (
     <Link
       href={href}
-      className="inline-flex rounded-card focus-visible:outline-offset-4"
+      className="inline-flex rounded-hoja focus-visible:outline-offset-4"
       aria-label="StreamHub, ir al inicio"
     >
       {content}

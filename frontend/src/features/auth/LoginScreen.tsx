@@ -64,50 +64,52 @@ export function LoginScreen() {
   };
 
   return (
-    <main
-      id="main"
-      className="grid min-h-dvh lg:grid-cols-[1.08fr_0.92fr]"
-    >
-      <section className="screen-grain relative hidden flex-col justify-between overflow-hidden border-r border-line px-14 py-12 lg:flex">
-        <Wordmark className="text-3xl" />
+    <main id="main" className="grid min-h-dvh lg:grid-cols-[1.1fr_0.9fr]">
+      <section className="pizarra-zona relative hidden flex-col justify-between overflow-hidden bg-pizarra px-14 py-12 text-tiza lg:flex">
+        <div
+          aria-hidden="true"
+          className="absolute inset-0"
+          style={{
+            backgroundImage:
+              "radial-gradient(90% 80% at 100% 0%, rgba(36, 51, 232, 0.55), transparent 62%), linear-gradient(rgba(241, 243, 255, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(241, 243, 255, 0.05) 1px, transparent 1px)",
+            backgroundSize: "auto, 32px 32px, 32px 32px",
+          }}
+        />
 
-        <div className="relative max-w-lg animate-rise">
-          <p className="text-sm text-brass">La función de las 8</p>
-          <p className="mt-4 font-display text-6xl leading-[0.94] text-paper">
+        <Wordmark className="relative text-4xl" tone="dark" />
+
+        <div className="relative max-w-xl animate-rise">
+          <p className="text-sm font-medium text-tiza/70">La función de las 8</p>
+          <p className="titular mt-4 text-8xl text-tiza">
             La noche empieza en casa.
           </p>
-          <p className="mt-6 max-w-md text-base leading-relaxed text-paper-muted">
-            Tu cartelera, tu historial y lo que sigue, listos antes de que te
-            acomodes en el sofá.
+          <p className="mt-6 max-w-md text-base leading-relaxed text-tiza/75">
+            Tu cartelera, tu historial y tus clases grabadas, listos antes de
+            que te acomodes en el sofá.
           </p>
         </div>
 
-        <div className="flex items-center gap-6 text-xs text-paper-muted">
-          <span>Perfiles para toda la familia</span>
-          <span className="h-px w-8 bg-line" aria-hidden="true" />
-          <span>Seguir viendo en cualquier pantalla</span>
+        <div className="relative">
+          <div className="flex items-center" aria-hidden="true">
+            <span className="h-[3px] w-24 bg-marcador" />
+            <span className="h-px flex-1 bg-tiza/25" />
+          </div>
+          <p className="mt-3 text-xs text-tiza/70">
+            Perfiles para toda la familia. Seguir viendo en cualquier pantalla.
+          </p>
         </div>
-
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute -right-16 bottom-10 font-display text-[18rem] leading-none text-paper/[0.03]"
-        >
-          8
-        </span>
       </section>
 
-      <section className="flex items-center justify-center px-6 py-12">
-        <div className="w-full max-w-sm">
-          <Wordmark className="text-2xl lg:hidden" />
+      <section className="papel flex items-center justify-center px-6 py-12">
+        <div className="w-full max-w-sm rounded-hoja border border-regla bg-hoja-2 p-8">
+          <Wordmark className="text-3xl lg:hidden" />
 
-          <h1 className="mt-8 font-display text-4xl text-paper lg:mt-0">
-            Entrar
-          </h1>
-          <p className="mt-2 text-sm text-paper-muted">
+          <h1 className="titular mt-8 text-5xl text-tinta lg:mt-0">Entrar</h1>
+          <p className="mt-3 text-sm text-tinta-suave">
             Usa la cuenta principal de StreamHub.
           </p>
 
-          <form className="mt-8 flex flex-col gap-6" onSubmit={handleSubmit}>
+          <form className="mt-8 flex flex-col gap-5" onSubmit={handleSubmit}>
             <Field
               label="Correo electrónico"
               type="email"
@@ -130,13 +132,13 @@ export function LoginScreen() {
                 autoComplete="current-password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                inputClassName="pr-20"
+                inputClassName="pr-24"
                 required
               />
               <button
                 type="button"
                 onClick={() => setShowPassword((value) => !value)}
-                className="absolute top-7 right-0 min-h-11 text-xs font-medium text-paper-muted transition-colors hover:text-paper"
+                className="absolute top-7 right-1 min-h-11 px-2 text-xs font-medium text-azul transition-colors duration-150 hover:text-azul-fuerte"
                 aria-pressed={showPassword}
               >
                 {showPassword ? "Ocultar" : "Mostrar"}
@@ -155,12 +157,12 @@ export function LoginScreen() {
             </Button>
           </form>
 
-          <div className="mt-8 border-t border-line pt-4">
-            <p className="text-xs text-paper-muted">Cuenta de demostración</p>
+          <div className="mt-8 border-t border-regla pt-4">
+            <p className="text-xs text-tinta-tenue">Cuenta de demostración</p>
             <button
               type="button"
               onClick={fillDemoAccount}
-              className="mt-1 min-h-11 text-left text-sm text-paper transition-colors hover:text-brass"
+              className="mt-1 min-h-11 text-left text-sm font-medium text-tinta transition-colors duration-150 hover:text-azul"
             >
               ana@example.com · S3cret-pass
             </button>

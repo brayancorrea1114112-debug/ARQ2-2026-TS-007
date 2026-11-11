@@ -58,7 +58,7 @@ export function TitleScreen() {
       <>
         <AppHeader />
         <main id="main" className="mx-auto w-full max-w-3xl px-6 py-16">
-          <h1 className="font-display text-4xl text-paper">
+          <h1 className="titular text-5xl text-tinta">
             No pudimos cargar este título
           </h1>
           <ErrorNotice
@@ -80,7 +80,7 @@ export function TitleScreen() {
       <>
         <AppHeader />
         <main id="main" className="mx-auto w-full max-w-3xl px-6 py-16">
-          <h1 className="font-display text-4xl text-paper">
+          <h1 className="titular text-5xl text-tinta">
             No encontramos este título
           </h1>
           <Link
@@ -111,71 +111,82 @@ export function TitleScreen() {
   return (
     <>
       <AppHeader />
-      <main id="main" className="mx-auto w-full max-w-5xl px-6 py-10">
-        <Link
-          href="/home"
-          className="text-sm text-paper-muted transition-colors hover:text-paper"
-        >
-          ← Volver al inicio
-        </Link>
+      <main id="main" className="papel flex-1">
+        <div className="mx-auto w-full max-w-5xl px-6 py-10">
+          <Link
+            href="/home"
+            className="inline-flex min-h-11 items-center text-sm text-tinta-suave transition-colors duration-150 hover:text-tinta"
+          >
+            ← Volver al inicio
+          </Link>
 
-        <div className="mt-8 grid gap-10 md:grid-cols-[220px_1fr] md:items-start">
-          <div className="mx-auto w-40 sm:w-52 md:mx-0 md:w-full">
-            <Poster
-              contentId={title.content_id}
-              name={title.name}
-              poster={title.poster}
-              progress={percent}
-            />
-          </div>
+          <div className="mt-4 grid gap-10 md:grid-cols-[240px_1fr] md:items-start">
+            <div className="mx-auto w-44 sm:w-56 md:mx-0 md:w-full">
+              <Poster
+                contentId={title.content_id}
+                name={title.name}
+                poster={title.poster}
+                progress={percent}
+              />
+            </div>
 
-          <div className="animate-rise">
-            <h1 className="font-display text-5xl leading-[0.96] text-paper">
-              {title.name}
-            </h1>
+            <div className="animate-rise">
+              <h1 className="titular text-6xl text-tinta sm:text-8xl">
+                {title.name}
+              </h1>
 
-            {hasMetadata ? (
-              <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-paper-muted tabular-nums">
-                {title.age_rating ? <span>{title.age_rating}</span> : null}
-                {duration ? <span>{duration}</span> : null}
-                {title.genres?.length ? (
-                  <span>{title.genres.join(" · ")}</span>
-                ) : null}
-              </div>
-            ) : null}
-
-            <p className="mt-6 max-w-2xl text-base leading-relaxed text-paper-muted">
-              {title.synopsis ??
-                "La sinopsis de este título todavía no está en el catálogo."}
-            </p>
-
-            {progress ? (
-              <div className="mt-6 max-w-md">
-                <div className="flex items-center justify-between text-xs text-paper-muted tabular-nums">
-                  <span>{formatTime(progress.progress_seconds)} vistos</span>
+              {hasMetadata ? (
+                <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-tinta-suave tabular-nums">
+                  {title.age_rating ? (
+                    <span className="rounded-[3px] border border-regla-fuerte px-1.5 py-0.5 text-xs font-medium text-tinta">
+                      {title.age_rating}
+                    </span>
+                  ) : null}
                   {duration ? <span>{duration}</span> : null}
+                  {title.genres?.length ? (
+                    <span>{title.genres.join(", ")}</span>
+                  ) : null}
                 </div>
-                <div
-                  className="mt-2 h-1 w-full bg-ink-800"
-                  role="progressbar"
-                  aria-label="Progreso guardado"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={Math.round(percent ?? 0)}
-                >
-                  <div
-                    className="h-full bg-brass"
-                    style={{ width: `${percent ?? 0}%` }}
-                  />
-                </div>
-              </div>
-            ) : null}
+              ) : null}
 
-            <div className="mt-8 flex flex-wrap items-center gap-3">
-              <Link href={watchHref} className={buttonStyles()}>
-                {progress ? "Reanudar" : "Reproducir"}
-              </Link>
-              <RatingButtons contentId={title.content_id} />
+              <p className="mt-6 max-w-2xl text-base leading-relaxed text-tinta-suave">
+                {title.synopsis ??
+                  "La sinopsis de este título todavía no está en el catálogo."}
+              </p>
+
+              {progress ? (
+                <div className="mt-6 max-w-md">
+                  <div className="flex items-center justify-between text-xs text-tinta-tenue tabular-nums">
+                    <span>{formatTime(progress.progress_seconds)} vistos</span>
+                    {duration ? <span>{duration}</span> : null}
+                  </div>
+                  <div
+                    className="relative mt-2 h-[3px] w-full bg-regla-fuerte"
+                    role="progressbar"
+                    aria-label="Progreso guardado"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(percent ?? 0)}
+                  >
+                    <div
+                      className="h-full bg-azul"
+                      style={{ width: `${percent ?? 0}%` }}
+                    />
+                    <span
+                      aria-hidden="true"
+                      className="absolute -top-1.5 h-[15px] w-[3px] bg-marcador"
+                      style={{ left: `${percent ?? 0}%` }}
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="mt-8 flex flex-wrap items-center gap-3">
+                <Link href={watchHref} className={buttonStyles()}>
+                  {progress ? "Reanudar" : "Reproducir"}
+                </Link>
+                <RatingButtons contentId={title.content_id} />
+              </div>
             </div>
           </div>
         </div>

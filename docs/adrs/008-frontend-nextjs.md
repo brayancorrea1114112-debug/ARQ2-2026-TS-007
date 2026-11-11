@@ -1,4 +1,4 @@
-# ADR 007: Next.js frontend inside the repository
+# ADR 008: Next.js frontend inside the repository
 
 ## Status
 
@@ -79,8 +79,7 @@ When the Catalog & Home Service and the Telemetry Service exist:
 ## Update: catalog-service integration
 
 `catalog-service` now implements `GET /api/v1/home`, is routed by Kong and has a
-local MongoDB seed (`infra/mongo/seed.js`). A Redis seed
-(`infra/redis/seed.sh`) provides sample Home views. Kong now exposes a global
+local MongoDB seed (`infra/mongo/seed.js`). Kong now exposes a global
 `cors` plugin for `http://localhost:3001`.
 
 The client therefore defaults to a partial mock mode
@@ -100,5 +99,4 @@ the mock E2E suite use `NEXT_PUBLIC_USE_MOCKS=true` with
 
 Jaeger tracing is enabled for the gateway, auth, catalog, telemetry and the
 worker (traces only). The trace of a ping follows Kong → telemetry-service →
-RabbitMQ → recommendation-worker. Prometheus, Loki, Grafana and dashboards remain
-out of this delivery.
+RabbitMQ → recommendation-worker.

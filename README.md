@@ -22,15 +22,19 @@ npm install
 npm run dev   # http://localhost:3001
 ```
 
-Create the root `.env` from `.env.example` (`JWT_SECRET` and `MONGODB_URI`) and
-start the stack. `mongo-seed` loads the development catalog; Home cache entries
+Each service reads its configuration from its own `.env`, which is not in Git. Create them
+from the examples and fill in the values. `JWT_SECRET` must be the same in auth, catalog,
+telemetry and `kong/kong.yml`, and the passwords must match the ones in `infra/*/.env`:
+
+```bash
+for f in services/*/.env.example infra/*/.env.example; do cp "$f" "${f%.example}"; done
+```
+
+Then start the whole stack. `mongo-seed` loads the development catalog; Home cache entries
 are built on demand from MongoDB and Cassandra:
 
 ```bash
-docker compose up -d --build postgres auth-service mongo mongo-seed \
-  redis catalog-service telemetry-service \
-  rabbitmq cassandra cassandra-init recommendation-worker \
-  otel-collector jaeger kong
+docker compose up -d --build
 ```
 
 Demo accounts: `ana@example.com` / `S3cret-pass` (Ana and Sam profiles) and
@@ -48,8 +52,10 @@ cache misses (ADR 002, ADR 006 and ADR 007).
 
 Traces are collected with OpenTelemetry and exported to **Jaeger** at
 <http://localhost:16686>. A ping trace follows Kong → telemetry-service →
-RabbitMQ → recommendation-worker. Prometheus, Loki, Grafana and dashboards are
-deliberately out of this delivery (ADR 005).
+RabbitMQ → recommendation-worker.
+
+Metrics are in Prometheus (<http://localhost:9090>), logs in Loki through Grafana Alloy, and
+the StreamHub dashboard in Grafana (<http://localhost:3000>).
 
 ## Interactions DB (Cassandra)
 

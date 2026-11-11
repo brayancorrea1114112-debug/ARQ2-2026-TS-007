@@ -15,7 +15,13 @@ const labels: Record<Rating, string> = {
   DISLIKE: "No me gusta",
 };
 
-export function RatingButtons({ contentId }: { contentId: string }) {
+export function RatingButtons({
+  contentId,
+  tone = "light",
+}: {
+  contentId: string;
+  tone?: "light" | "dark";
+}) {
   const token = useSessionStore((state) => state.profileToken);
   const authFailure = useAuthFailure();
   const [rating, setRating] = useState<Rating | null>(null);
@@ -46,6 +52,8 @@ export function RatingButtons({ contentId }: { contentId: string }) {
     }
   };
 
+  const dark = tone === "dark";
+
   return (
     <div className="flex flex-wrap items-center gap-3">
       {(Object.keys(labels) as Rating[]).map((value) => (
@@ -56,10 +64,14 @@ export function RatingButtons({ contentId }: { contentId: string }) {
           disabled={status === "sending"}
           aria-pressed={rating === value}
           className={cn(
-            "min-h-11 rounded-card border px-4 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-            rating === value
-              ? "border-brass bg-brass/10 text-brass"
-              : "border-line text-paper-muted hover:border-paper-muted hover:text-paper",
+            "min-h-11 rounded-hoja border px-4 text-sm font-medium transition-[background-color,border-color,color,transform] duration-150 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60",
+            dark
+              ? rating === value
+                ? "border-tiza bg-tiza text-pizarra"
+                : "border-tiza/30 text-tiza hover:border-tiza"
+              : rating === value
+                ? "border-azul bg-azul text-white"
+                : "border-regla-fuerte bg-hoja-2 text-tinta hover:border-azul hover:bg-azul-claro",
           )}
         >
           {labels[value]}
@@ -71,7 +83,13 @@ export function RatingButtons({ contentId }: { contentId: string }) {
         aria-live="polite"
         className={cn(
           "text-xs",
-          status === "error" ? "text-signal" : "text-paper-muted",
+          status === "error"
+            ? dark
+              ? "text-[#ff9c8f]"
+              : "text-error"
+            : dark
+              ? "text-tiza/70"
+              : "text-tinta-suave",
         )}
       >
         {status === "sending"

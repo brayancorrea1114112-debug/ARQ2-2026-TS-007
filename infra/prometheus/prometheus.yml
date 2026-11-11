@@ -21,6 +21,9 @@ scrape_configs:
       - targets: ["recommendation-worker:8080"]
         labels:
           application: recommendation-worker
+      - targets: ["telemetry-service:8080"]
+        labels:
+          application: telemetry-service
 
   # Kong prometheus plugin (see kong/kong.yml), served by the Admin API.
   - job_name: kong

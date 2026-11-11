@@ -10,6 +10,9 @@ import org.springframework.boot.mongodb.autoconfigure.MongoClientSettingsBuilder
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.data.mongodb.observability.ContextProviderFactory;
+import org.springframework.data.mongodb.observability.MongoObservationCommandListener;
+import io.micrometer.observation.ObservationRegistry;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
@@ -36,9 +39,13 @@ public class RealAdaptersConfig {
 
     /** MongoDB waits 30 s to find a server by default; the Home cannot wait that long to answer 503. */
     @Bean
-    public MongoClientSettingsBuilderCustomizer mongoTimeouts(@Value("${catalog.mongodb.timeout}") Duration timeout) {
+    public MongoClientSettingsBuilderCustomizer mongoTimeouts(@Value("${catalog.mongodb.timeout}") Duration timeout,
+                                                              ObservationRegistry observations) {
         int millis = (int) timeout.toMillis();
         return settings -> settings
+                // Each MongoDB query becomes a span of the trace (Feature 5).
+                .contextProvider(ContextProviderFactory.create(observations))
+                .addCommandListener(new MongoObservationCommandListener(observations))
                 .applyToClusterSettings(cluster -> cluster.serverSelectionTimeout(millis, TimeUnit.MILLISECONDS))
                 .applyToSocketSettings(socket -> socket
                         .connectTimeout(millis, TimeUnit.MILLISECONDS)

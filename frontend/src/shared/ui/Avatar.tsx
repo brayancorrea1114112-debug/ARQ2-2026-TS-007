@@ -20,8 +20,8 @@ export function Avatar({
       className={cn(
         "relative flex shrink-0 items-center justify-center overflow-hidden rounded-full border text-sm font-semibold",
         tone === "kids"
-          ? "border-mint/40 bg-mint/10 text-mint"
-          : "border-brass/40 bg-brass/10 text-brass",
+          ? "border-menta/30 bg-menta-claro text-menta"
+          : "border-azul/25 bg-azul-claro text-azul",
         "h-12 w-12",
         className,
       )}

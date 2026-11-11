@@ -21,10 +21,7 @@ export function Field({
 
   return (
     <div className={cn("flex flex-col gap-2", className)}>
-      <label
-        htmlFor={id}
-        className="text-sm font-medium text-paper-muted"
-      >
+      <label htmlFor={id} className="text-sm font-medium text-tinta">
         {label}
       </label>
       <input
@@ -33,21 +30,21 @@ export function Field({
         aria-invalid={error ? true : undefined}
         aria-describedby={cn(hintId, errorId) || undefined}
         className={cn(
-          "min-h-11 w-full border-0 border-b bg-transparent px-0 py-2 text-base text-paper",
-          "placeholder:text-paper-muted/60",
-          "focus:border-brass focus:outline-none focus-visible:outline-none",
-          error ? "border-signal" : "border-line",
+          "min-h-11 w-full rounded-hoja border bg-hoja-2 px-3 py-2 text-base text-tinta transition-[border-color,box-shadow] duration-150",
+          "placeholder:text-tinta-tenue/70",
+          "focus:border-azul focus:ring-2 focus:ring-azul/20 focus:outline-none focus-visible:outline-none",
+          error ? "border-error" : "border-regla-fuerte",
           inputClassName,
         )}
         {...props}
       />
       {hint && !error ? (
-        <p id={hintId} className="text-xs text-paper-muted">
+        <p id={hintId} className="text-xs text-tinta-tenue">
           {hint}
         </p>
       ) : null}
       {error ? (
-        <p id={errorId} className="text-xs text-signal">
+        <p id={errorId} className="text-xs text-error">
           {error}
         </p>
       ) : null}

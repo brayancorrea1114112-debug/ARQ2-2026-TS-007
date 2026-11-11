@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { HomeTitle } from "@/shared/api/contracts";
 import { formatDuration } from "@/shared/lib/format";
 import { Poster } from "@/shared/ui/Poster";
+import { SectionHeading } from "@/shared/ui/SectionHeading";
 
 export function TitleRail({
   heading,
@@ -13,16 +14,14 @@ export function TitleRail({
   emptyMessage?: string;
 }) {
   return (
-    <section className="mx-auto w-full max-w-6xl px-6 py-7">
-      <div className="flex items-baseline justify-between gap-4 border-b border-line pb-3">
-        <h2 className="font-display text-2xl text-paper">{heading}</h2>
-        <span className="text-xs text-paper-muted">
-          {titles.length} {titles.length === 1 ? "título" : "títulos"}
-        </span>
-      </div>
+    <section className="mx-auto w-full max-w-6xl px-6 py-8">
+      <SectionHeading
+        heading={heading}
+        aside={`${titles.length} ${titles.length === 1 ? "título" : "títulos"}`}
+      />
 
       {titles.length === 0 ? (
-        <p className="mt-6 max-w-md text-sm text-paper-muted">
+        <p className="mt-6 max-w-md text-sm text-tinta-suave">
           {emptyMessage ?? "Aún no hay títulos en esta lista."}
         </p>
       ) : (
@@ -41,18 +40,20 @@ export function TitleRail({
               >
                 <Link
                   href={`/title/${title.content_id}`}
-                  className="group block rounded-card"
+                  className="group block rounded-hoja"
                 >
-                  <Poster
-                    contentId={title.content_id}
-                    name={title.name}
-                    poster={title.poster}
-                  />
-                  <p className="mt-2 line-clamp-2 text-sm text-paper transition-colors group-hover:text-brass">
+                  <div className="transition-transform duration-150 group-hover:-translate-y-0.5">
+                    <Poster
+                      contentId={title.content_id}
+                      name={title.name}
+                      poster={title.poster}
+                    />
+                  </div>
+                  <p className="mt-2 line-clamp-2 text-sm font-medium text-tinta transition-colors duration-150 group-hover:text-azul">
                     {title.name}
                   </p>
                   {meta ? (
-                    <p className="mt-1 text-xs text-paper-muted tabular-nums">
+                    <p className="mt-1 text-xs text-tinta-tenue tabular-nums">
                       {meta}
                     </p>
                   ) : null}
