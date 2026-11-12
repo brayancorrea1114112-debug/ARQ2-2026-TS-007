@@ -14,22 +14,11 @@ StreamHub experiences occasional high latency when users initially request the H
 ## Decision
 Option 2 - Implement OpenTelemetry for distributed tracing and use Jaeger to collect, visualize, and analyze traces across all platform services.
 
+Kong and every service export their spans over OTLP to the OpenTelemetry Collector, which sends them to Jaeger. Kong creates and propagates the W3C `traceparent` header, and the RabbitMQ messages carry it, so the worker spans join the trace of the original request. Tracing is complemented by metrics and logs: Prometheus scrapes the services and Kong, Grafana Alloy sends the container logs to Loki, and Grafana shows the three sources in one dashboard.
+
 ## Trade-offs
-- **Positive:** End-to-end visibility into request execution paths; precise identification of latency bottlenecks across services and databases; improved troubleshooting of slow initial requests; correlation of operations across distributed boundaries.
-- **Negative:** Additional code instrumentation and infrastructure requirements; storage and processing overhead for trace data; need to configure proper sampling rates.
+- Positive: End-to-end visibility into request execution paths; precise identification of latency bottlenecks across services and databases; improved troubleshooting of slow initial requests; correlation of operations across distributed boundaries.
+- Negative: Additional code instrumentation and infrastructure requirements; storage and processing overhead for trace data; need to configure proper sampling rates.
 
 ## Final Justification
 Distributed tracing enables StreamHub to pinpoint which microservice or database contributes most to initial client request latency, empowering the engineering team to diagnose bottlenecks and optimize the Home screen delivery path effectively.
-
-## Implementation Notes
-
-Traces go to Jaeger through the OpenTelemetry Collector. Metrics and logs use the rest of the observability stack.
-
-- `otel-collector/otel-collector.yml` receives OTLP over gRPC/HTTP and exports batches to Jaeger (`jaeger:4317`).
-- Spring Boot 4 services use `spring-boot-micrometer-tracing-opentelemetry`; the Spring Boot 3 worker uses `micrometer-tracing-bridge-otel` and the OTLP HTTP exporter.
-- Kong uses the `opentelemetry` plugin with `KONG_TRACING_INSTRUMENTATIONS=all` and W3C propagation, so it creates and injects `traceparent`.
-- RabbitMQ observations propagate the trace context; the worker span joins the HTTP trace of the ping or like.
-- Jaeger UI: <http://localhost:16686>.
-- Metrics: Prometheus scrapes `/actuator/prometheus` of each service and the Kong `prometheus` plugin (`infra/prometheus/prometheus.yml`).
-- Logs: Grafana Alloy reads the container logs and pushes them to Loki (`infra/alloy/config.alloy`).
-- Grafana loads its data sources and the StreamHub dashboard from `infra/grafana`.

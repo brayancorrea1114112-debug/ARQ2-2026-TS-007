@@ -19,6 +19,12 @@ services:
       - "8001:8001"
     volumes:
       - ./kong/kong.yml:/kong/kong.yml:ro
+    healthcheck:
+      test: [ "CMD", "kong", "health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
 
   # data base
   postgres:
@@ -35,6 +41,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    restart: unless-stopped
 
   # services
   auth-service:
@@ -49,6 +56,13 @@ services:
         condition: service_started
     ports:
       - "${AUTH_SERVICE_PORT:-8081}:8080"
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health > /dev/null || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
 
   mongo:
     container_name: mongo-arquitectura2
@@ -65,6 +79,7 @@ services:
       timeout: 5s
       retries: 20
       start_period: 10s
+    restart: unless-stopped
 
   # Development catalog used to build Home entries on cache misses. Idempotent, runs once and exits.
   mongo-seed:
@@ -97,6 +112,7 @@ services:
       timeout: 10s
       retries: 20
       start_period: 40s
+    restart: unless-stopped
 
   # Creates the keyspace and tables before the worker and Catalog service start.
   cassandra-init:
@@ -118,6 +134,12 @@ services:
       - redisdata:/data
     ports:
       - "6379:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
 
   # mensajes
   rabbitmq:
@@ -130,13 +152,20 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "-q", "ping" ]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
 
   recommendation-worker:
     container_name: recommendation-worker-arquitectura2
     build: ./services/recommendation-worker
     depends_on:
       rabbitmq:
-        condition: service_started
+        condition: service_healthy
       cassandra-init:
         condition: service_completed_successfully
       otel-collector:
@@ -145,15 +174,22 @@ services:
       - ./services/recommendation-worker/.env
     ports:
       - "8082:8080"
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health > /dev/null || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
 
   catalog-service:
     container_name: catalog-service-arquitectura2
     build: ./services/catalog-service
     depends_on:
       mongo:
-        condition: service_started
+        condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       cassandra-init:
         condition: service_completed_successfully
       otel-collector:
@@ -162,19 +198,33 @@ services:
       - ./services/catalog-service/.env
     ports:
       - "8083:8080"
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health/liveness > /dev/null || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
 
   telemetry-service:
     container_name: telemetry-service-arquitectura2
     build: ./services/telemetry-service
     depends_on:
       rabbitmq:
-        condition: service_started
+        condition: service_healthy
       otel-collector:
         condition: service_started
     env_file:
       - ./services/telemetry-service/.env
     ports:
       - "${TELEMETRY_SERVICE_PORT:-8084}:8080"
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health > /dev/null || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
 
   # observability
   # Traces: Kong + services --OTLP--> otel-collector --> jaeger
@@ -189,6 +239,7 @@ services:
     ports:
       - "4317:4317"
       - "4318:4318"
+    restart: unless-stopped
 
   jaeger:
     container_name: jaeger-arquitectura2
@@ -197,6 +248,7 @@ services:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
       - "16686:16686"
+    restart: unless-stopped
 
   # Metrics: prometheus scrapes /actuator/prometheus of the services and Kong's /metrics
   prometheus:
@@ -207,6 +259,7 @@ services:
       - prometheusdata:/prometheus
     ports:
       - "9090:9090"
+    restart: unless-stopped
 
   # Logs: alloy reads the logs of every container and pushes them to loki
   loki:
@@ -216,6 +269,7 @@ services:
       - lokidata:/loki
     ports:
       - "3100:3100"
+    restart: unless-stopped
 
   alloy:
     container_name: alloy-arquitectura2
@@ -228,6 +282,7 @@ services:
       - loki
     ports:
       - "12345:12345"
+    restart: unless-stopped
 
   # Datasources and dashboards are provisioned from infra/grafana
   grafana:
@@ -245,6 +300,7 @@ services:
       - jaeger
     ports:
       - "3000:3000"
+    restart: unless-stopped
 
 volumes:
   pgdata:

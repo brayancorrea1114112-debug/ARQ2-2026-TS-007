@@ -14,22 +14,11 @@ StreamHub separates the write path (playback pings, likes and ratings ingested t
 ## Decision
 Option 2 - Introduce an Interactions DB based on a write-optimized NoSQL database (Cassandra) as the source of truth for watch progress, likes, ratings and raw interaction events. The Playback Progress Worker and the Recommendation Worker persist each processed event into this database and then project the resulting state into Redis, which remains a disposable read model.
 
+ADR 007 later removed the projection into Redis: the worker only writes to Cassandra, and the Catalog & Home Service rebuilds Redis entries on a cache miss. A single Recommendation Worker consumes both queues. The keyspace `streamhub` and its tables are defined in `infra/cassandra/init.cql`. Writes use `USING TIMESTAMP` with the event timestamp, so a redelivered or out-of-order event never overwrites a newer one, and `events_by_id` uses `event_id` as its primary key, so a duplicate insert has no effect. The raw event history expires after a configurable number of days (90 by default).
+
 ## Trade-offs
-- **Positive:** Durable source of truth for interaction data; Redis can be fully rebuilt from the Interactions DB after a failure or eviction; high write throughput suited to continuous 10-second pings; complete isolation from the catalog databases; a complete CQRS flow (command, event, persistence, read-model projection); raw events remain available for recalculating recommendations.
-- **Negative:** One additional database to deploy, operate and monitor; dual write from the workers (persist, then project to Redis) requires idempotent consumers to handle redelivered messages; eventual consistency between the write store and the cache; the team must adopt data modeling practices specific to the chosen database (query-driven tables, partition keys).
+- Positive: Durable source of truth for interaction data; Redis can be fully rebuilt from the Interactions DB after a failure or eviction; high write throughput suited to continuous 10-second pings; complete isolation from the catalog databases; a complete CQRS flow (command, event, persistence, read-model projection); raw events remain available for recalculating recommendations.
+- Negative: One additional database to deploy, operate and monitor; dual write from the workers (persist, then project to Redis) requires idempotent consumers to handle redelivered messages; eventual consistency between the write store and the cache; the team must adopt data modeling practices specific to the chosen database (query-driven tables, partition keys).
 
 ## Final Justification
 Persisting interaction events in a write-optimized store gives StreamHub a durable and rebuildable foundation for its read models, turning the current cache-aside and event-driven design into a complete CQRS architecture. It protects user data against cache loss and keeps the high-volume write workload separated from the catalog read path, which preserves the low-latency Home screen delivery defined in ADR 001 and the decoupled ingestion defined in ADR 002.
-
-## Implementation Notes
-The decision is implemented by the `recommendation-worker` (a single worker consumes both queues, matching the container list in `spec.md`):
-
-- Keyspace `streamhub` and tables defined in `infra/cassandra/init.cql`; schema is created by the `cassandra-init` Compose service before the worker starts.
-- Hexagonal ports `ProgressStorePort`, `RatingStorePort`, `PreferenceStorePort` and `EventStorePort`, implemented by Cassandra adapters.
-- Writes use `USING TIMESTAMP` derived from the event timestamp, so redelivered or out-of-order events are last-write-wins without read-before-write. `events_by_id` is a plain insert keyed by `event_id` and is therefore idempotent.
-- The worker persists to Cassandra first and projects to Redis afterwards, so the read model never advances ahead of the durable state.
-- The read model is rebuilt with `POST /admin/rebuild[/{profile_id}]` (header `X-Admin-Token`), or on startup with `REBUILD_ON_STARTUP=true`.
-- Raw event history has a configurable TTL (`CASSANDRA_HISTORY_TTL_DAYS`, 90 days by default).
-
-## Amendment
-ADR 007 replaces the worker-to-Redis projection and the manual/startup read-model rebuild described above. Workers now persist interaction state and computed recommendations only in Cassandra. The Catalog & Home Service rebuilds Redis entries from MongoDB and Cassandra on cache misses, with TTLs and per-key request coalescing.

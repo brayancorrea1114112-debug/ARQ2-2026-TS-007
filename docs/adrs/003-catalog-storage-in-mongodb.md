@@ -15,8 +15,8 @@ Movie and series metadata have hierarchical and variable structures (seasons, ep
 Option 2 - Use MongoDB for the master catalog of VOD content.
 
 ## Trade-offs
-- **Positive:** Native JSON format ready to be delivered to clients or cached; fast reads without multi-table joins; schema flexibility for new content attributes.
-- **Negative:** Lack of complex ACID transactions across distributed collections (which is not required for read-heavy catalog operations).
+- Positive: Native JSON format ready to be delivered to clients or cached; fast reads without multi-table joins; schema flexibility for new content attributes.
+- Negative: Lack of complex ACID transactions across distributed collections (which is not required for read-heavy catalog operations).
 
 ## Final Justification
 It simplifies VOD catalog data modeling and accelerates integration with the Redis caching and rendering layer.

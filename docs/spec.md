@@ -13,8 +13,6 @@ This file is the contract for Wave 1 and the reference against which the Wave 2 
 5. [Requirements and Scenarios](#5-requirements-and-scenarios)
 6. [Open Points for Wave 2](#6-open-points-for-wave-2)
 
----
-
 ## 1. Overview
 
 ### 1.1 Problem being solved
@@ -30,23 +28,23 @@ The solution has two rules:
 
 | Service | Container | Responsibility |
 |---|---|---|
-| **API Gateway** | Kong | Single entry point. Validates the JWT, applies rate limiting, routes requests, and creates the `X-Correlation-ID` and the W3C `traceparent` headers when the client does not send them. |
-| **Auth & Profile Service** | Container + PostgreSQL | Master accounts, login, family subprofiles and subprofile selection. Issues the JWTs. |
-| **Catalog & Home Service** | Container + Redis + MongoDB + Cassandra | Serves Home from Redis; on a miss, reads trending titles from MongoDB and progress/recommendations from Cassandra, then populates Redis. |
-| **Telemetry Service** | Container + RabbitMQ | Receives playback pings and likes, validates them, publishes them as events and replies `202 Accepted` immediately. It does not write to any database. |
-| **Message Broker** | RabbitMQ | Decouples ingestion from processing. Holds the telemetry and interaction queues and their dead-letter queues. |
-| **Recommendation Worker** | Container | Consumes the queues. Persists progress, ratings, raw events and computed recommendations in the Interactions DB (Cassandra). It does not write to Redis. |
-| **Interactions DB** | Cassandra | Durable source of truth for playback progress, ratings, raw interaction events and computed recommendations. |
-| **Observability Stack** | OpenTelemetry, Jaeger, Prometheus, Loki, Grafana | Collects traces, metrics and logs to locate latency in the initial requests. |
+| API Gateway | Kong | Single entry point. Validates the JWT, applies rate limiting, routes requests, and creates the `X-Correlation-ID` and the W3C `traceparent` headers when the client does not send them. |
+| Auth & Profile Service | Container + PostgreSQL | Master accounts, login, family subprofiles and subprofile selection. Issues the JWTs. |
+| Catalog & Home Service | Container + Redis + MongoDB + Cassandra | Serves Home from Redis; on a miss, reads trending titles from MongoDB and progress/recommendations from Cassandra, then populates Redis. |
+| Telemetry Service | Container + RabbitMQ | Receives playback pings and likes, validates them, publishes them as events and replies `202 Accepted` immediately. It does not write to any database. |
+| Message Broker | RabbitMQ | Decouples ingestion from processing. Holds the telemetry and interaction queues and their dead-letter queues. |
+| Recommendation Worker | Container | Consumes the queues. Persists progress, ratings, raw events and computed recommendations in the Interactions DB (Cassandra). It does not write to Redis. |
+| Interactions DB | Cassandra | Durable source of truth for playback progress, ratings, raw interaction events and computed recommendations. |
+| Observability Stack | OpenTelemetry, Jaeger, Prometheus, Loki, Grafana | Collects traces, metrics and logs to locate latency in the initial requests. |
 
 ### 1.3 Cross-cutting rules
 
-- **Authentication:** every endpoint except `POST /api/v1/auth/login` requires `Authorization: Bearer <JWT>`. The Gateway validates the signature and expiration before forwarding the request.
-- **Two token types:** an *account token* (claim `sub` = account id) is returned by login. A *profile token* (claims `sub` = account id and `profile_id`) is returned by profile selection. Endpoints for Home, telemetry and interactions require a profile token.
-- **Token signature:** tokens are signed with HS256 and a secret shared by the Auth & Profile Service, the services that verify them and Kong. The `iss` claim is `streamhub-auth`, which Kong uses to find the credential.
-- **Correlation:** every request carries `X-Correlation-ID` (UUID v4). The Gateway generates it if missing. It is propagated through HTTP calls, copied into the headers of every published event, and written in every log line.
-- **Tracing:** services propagate the W3C `traceparent` header and export spans with OpenTelemetry to Jaeger.
-- **Content type:** `application/json; charset=utf-8`. Timestamps use ISO 8601 UTC.
+- Authentication: every endpoint except `POST /api/v1/auth/login` requires `Authorization: Bearer <JWT>`. The Gateway validates the signature and expiration before forwarding the request.
+- Two token types: an *account token* (claim `sub` = account id) is returned by login. A *profile token* (claims `sub` = account id and `profile_id`) is returned by profile selection. Endpoints for Home, telemetry and interactions require a profile token.
+- Token signature: tokens are signed with HS256 and a secret shared by the Auth & Profile Service, the services that verify them and Kong. The `iss` claim is `streamhub-auth`, which Kong uses to find the credential.
+- Correlation: every request carries `X-Correlation-ID` (UUID v4). The Gateway generates it if missing. It is propagated through HTTP calls, copied into the headers of every published event, and written in every log line.
+- Tracing: services propagate the W3C `traceparent` header and export spans with OpenTelemetry to Jaeger.
+- Content type: `application/json; charset=utf-8`. Timestamps use ISO 8601 UTC.
 
 ### 1.4 Standard error body
 
@@ -62,7 +60,7 @@ All 4xx and 5xx responses use this body:
 }
 ```
 
----
+This includes the errors produced by the API Gateway itself (`401 UNAUTHORIZED`, `429 RATE_LIMITED`, `404 NOT_FOUND` when no route matches, and `SERVICE_UNAVAILABLE` when a service cannot be reached). Kong rewrites them to this body with a `post-function` plugin; errors returned by the services already follow it and are left untouched.
 
 ## 2. Data Schemas
 
@@ -166,8 +164,6 @@ Durable source of truth defined in ADR 006. All tables are query-driven.
 
 Writes to `progress_by_profile`, `ratings_by_profile`, `prefs_by_profile`, `recommendations_by_profile` and `event_history_by_profile` use `USING TIMESTAMP` derived from the event timestamp, so the newest event wins even when events arrive out of order or are redelivered. Workers never write to Redis.
 
----
-
 ## 3. HTTP APIs
 
 Base path: `/api/v1`. All requests go through the API Gateway.
@@ -185,8 +181,8 @@ Common responses for every authenticated endpoint:
 
 Authenticates a master account.
 
-- **Authentication:** none (public)
-- **Service:** Auth & Profile Service
+- Authentication: none (public)
+- Service: Auth & Profile Service
 
 Request body:
 
@@ -219,8 +215,8 @@ Responses:
 
 Lists the subprofiles of the authenticated account.
 
-- **Authentication:** Bearer account token
-- **Service:** Auth & Profile Service
+- Authentication: Bearer account token
+- Service: Auth & Profile Service
 
 Responses:
 
@@ -245,8 +241,8 @@ Responses:
 
 Selects the active subprofile and returns a profile token.
 
-- **Authentication:** Bearer account token
-- **Service:** Auth & Profile Service
+- Authentication: Bearer account token
+- Service: Auth & Profile Service
 
 Request body:
 
@@ -280,9 +276,9 @@ Responses:
 
 Returns the Home screen of the active profile. Redis hits are served from the cache; a miss rebuilds the view from MongoDB and Cassandra and stores it in Redis.
 
-- **Authentication:** Bearer profile token
-- **Service:** Catalog & Home Service
-- **Target latency:** under 20 ms on a cache hit
+- Authentication: Bearer profile token
+- Service: Catalog & Home Service
+- Target latency: under 20 ms on a cache hit
 
 Responses:
 
@@ -319,9 +315,9 @@ On a cache miss the service reads Trending from MongoDB and progress and recomme
 
 Reports the current playback position. Clients send it every 10 seconds.
 
-- **Authentication:** Bearer profile token
-- **Service:** Telemetry Service
-- **Behavior:** validates the body, publishes `telemetry.ping.received` and answers right away. It does not wait for any worker or database.
+- Authentication: Bearer profile token
+- Service: Telemetry Service
+- Behavior: validates the body, publishes `telemetry.ping.received` and answers right away. It does not wait for any worker or database.
 
 Request body:
 
@@ -365,8 +361,8 @@ Responses:
 
 Registers a Like or Dislike for a title.
 
-- **Authentication:** Bearer profile token
-- **Service:** Telemetry Service (publishes the event)
+- Authentication: Bearer profile token
+- Service: Telemetry Service (publishes the event)
 
 Request body:
 
@@ -403,9 +399,9 @@ Responses:
 
 Genres of every catalog title, read by the Recommendation Worker to compute suggestions (ADR 009).
 
-- **Authentication:** none. Kong does not route `/internal`, so it is only reachable inside the Docker network. It only returns public catalog data.
-- **Service:** Catalog & Home Service
-- **Consumer:** Recommendation Worker, which keeps the answer in memory for 5 minutes
+- Authentication: none. Kong does not route `/internal`, so it is only reachable inside the Docker network. It only returns public catalog data.
+- Service: Catalog & Home Service
+- Consumer: Recommendation Worker, which keeps the answer in memory for 5 minutes
 
 Responses:
 
@@ -425,8 +421,6 @@ Responses:
 }
 ```
 
----
-
 ## 4. Asynchronous Events
 
 Broker: RabbitMQ. Both exchanges are `topic`, durable. Both queues are durable with a dead-letter queue.
@@ -437,12 +431,12 @@ Headers on every event: `X-Correlation-ID`, `traceparent`, `content_type: applic
 
 | Item | Value |
 |---|---|
-| **Name** | `telemetry.ping.received` |
-| **Producer** | Telemetry Service |
-| **Consumers** | Recommendation Worker |
-| **Exchange** | `streamhub.telemetry` |
-| **Routing key** | `telemetry.ping.received` |
-| **Queue** | `telemetry.progress.queue` (dead-letter queue: `telemetry.progress.dlq`) |
+| Name | `telemetry.ping.received` |
+| Producer | Telemetry Service |
+| Consumers | Recommendation Worker |
+| Exchange | `streamhub.telemetry` |
+| Routing key | `telemetry.ping.received` |
+| Queue | `telemetry.progress.queue` (dead-letter queue: `telemetry.progress.dlq`) |
 
 Payload schema:
 
@@ -468,21 +462,21 @@ Payload schema:
 
 Delivery guarantees:
 
-- **Delivery:** at-least-once. The producer uses publisher confirms. The consumer uses broker-managed acknowledgment after processing, with automatic retries before the message is rejected to the DLQ.
-- **Idempotency:** the worker inserts into the Cassandra table `events_by_id`, whose primary key is `event_id`. A duplicate is a no-op at the durable level; Redis is not the idempotency store.
-- **Ordering:** global ordering is not guaranteed. Progress writes use `USING TIMESTAMP` with the event timestamp, so an old ping never overwrites a newer one, even if it arrives later or is redelivered.
-- **Retries:** up to 3 attempts with exponential backoff (waits of 1 s and 5 s). After that the message goes to `telemetry.progress.dlq` for inspection.
+- Delivery: at-least-once. The producer uses publisher confirms. The consumer uses broker-managed acknowledgment after processing, with automatic retries before the message is rejected to the DLQ.
+- Idempotency: the worker inserts into the Cassandra table `events_by_id`, whose primary key is `event_id`. A duplicate is a no-op at the durable level; Redis is not the idempotency store.
+- Ordering: global ordering is not guaranteed. Progress writes use `USING TIMESTAMP` with the event timestamp, so an old ping never overwrites a newer one, even if it arrives later or is redelivered.
+- Retries: up to 3 attempts with exponential backoff (waits of 1 s and 5 s). After that the message goes to `telemetry.progress.dlq` for inspection.
 
 ### 4.2 interaction.rating.added
 
 | Item | Value |
 |---|---|
-| **Name** | `interaction.rating.added` |
-| **Producer** | Telemetry Service |
-| **Consumers** | Recommendation Worker |
-| **Exchange** | `streamhub.interactions` |
-| **Routing key** | `interaction.rating.added` |
-| **Queue** | `interactions.rating.queue` (dead-letter queue: `interactions.rating.dlq`) |
+| Name | `interaction.rating.added` |
+| Producer | Telemetry Service |
+| Consumers | Recommendation Worker |
+| Exchange | `streamhub.interactions` |
+| Routing key | `interaction.rating.added` |
+| Queue | `interactions.rating.queue` (dead-letter queue: `interactions.rating.dlq`) |
 
 Payload schema:
 
@@ -506,10 +500,10 @@ Payload schema:
 
 Delivery guarantees:
 
-- **Delivery:** at-least-once, with publisher confirms and broker-managed acknowledgment plus retries.
-- **Idempotency:** deduplicated by `event_id` through Cassandra, same as telemetry.
-- **Ordering:** for the same `profile_id` and `content_id`, the rating with the newest `timestamp` wins (`USING TIMESTAMP` in Cassandra).
-- **Retries:** same policy as telemetry, then `interactions.rating.dlq`.
+- Delivery: at-least-once, with publisher confirms and broker-managed acknowledgment plus retries.
+- Idempotency: deduplicated by `event_id` through Cassandra, same as telemetry.
+- Ordering: for the same `profile_id` and `content_id`, the rating with the newest `timestamp` wins (`USING TIMESTAMP` in Cassandra).
+- Retries: same policy as telemetry, then `interactions.rating.dlq`.
 
 ### 4.3 What the worker does after each event
 
@@ -522,63 +516,59 @@ Workers write only to Cassandra. If Cassandra is unavailable the message is retr
 
 To compute the recommendations the worker reads the genres of the catalog (3.7) and keeps them in memory. If the catalog is unavailable, the event is still persisted and the previous recommendations are kept (ADR 009).
 
----
-
 ## 5. Requirements and Scenarios
 
 ### Feature 1: Master account authentication with family subprofile selection
 
-- **WHEN** a user sends valid credentials to `POST /api/v1/auth/login` **THEN** the system returns `200` with an account token.
-- **WHEN** a user sends a wrong password **THEN** the system returns `401` with `INVALID_CREDENTIALS`.
-- **WHEN** an authenticated account calls `GET /api/v1/profiles` **THEN** the system returns only the profiles of that account.
-- **WHEN** an account selects one of its profiles with `POST /api/v1/profiles/select` **THEN** the system returns `200` and a token that contains `profile_id`.
-- **WHEN** an account selects a profile that belongs to another account **THEN** the system returns `403`.
-- **WHEN** a request arrives at the Gateway with an expired or invalid JWT **THEN** the Gateway returns `401` and the request never reaches the services.
+- WHEN a user sends valid credentials to `POST /api/v1/auth/login` THEN the system returns `200` with an account token.
+- WHEN a user sends a wrong password THEN the system returns `401` with `INVALID_CREDENTIALS`.
+- WHEN an authenticated account calls `GET /api/v1/profiles` THEN the system returns only the profiles of that account.
+- WHEN an account selects one of its profiles with `POST /api/v1/profiles/select` THEN the system returns `200` and a token that contains `profile_id`.
+- WHEN an account selects a profile that belongs to another account THEN the system returns `403`.
+- WHEN a request arrives at the Gateway with an expired or invalid JWT THEN the Gateway returns `401` and the request never reaches the services.
 
 ### Feature 2: Home screen in milliseconds from cache
 
-- **WHEN** a client calls `GET /api/v1/home` and the view exists in Redis **THEN** the system returns `200` with `source: "cache"` in under 20 ms and runs no relational query.
-- **WHEN** the view is not in Redis **THEN** the system rebuilds Home from MongoDB and Cassandra, populates Redis, and returns the personalized result.
-- **WHEN** concurrent requests miss for the same profile **THEN** only one request rebuilds the view.
-- **WHEN** a dependency needed for a cache miss is down **THEN** the system returns `503` with a standard error body.
-- **WHEN** the token has no `profile_id` **THEN** the system returns `403` with `PROFILE_NOT_SELECTED`.
-- **WHEN** a heavy load of pings is being processed **THEN** `GET /api/v1/home` keeps the same latency, because ingestion does not use the catalog connections.
+- WHEN a client calls `GET /api/v1/home` and the view exists in Redis THEN the system returns `200` with `source: "cache"` in under 20 ms and runs no relational query.
+- WHEN the view is not in Redis THEN the system rebuilds Home from MongoDB and Cassandra, populates Redis, and returns the personalized result.
+- WHEN concurrent requests miss for the same profile THEN only one request rebuilds the view.
+- WHEN a dependency needed for a cache miss is down THEN the system returns `503` with a standard error body.
+- WHEN the token has no `profile_id` THEN the system returns `403` with `PROFILE_NOT_SELECTED`.
+- WHEN a heavy load of pings is being processed THEN `GET /api/v1/home` keeps the same latency, because ingestion does not use the catalog connections.
 
 ### Feature 3: Massive, decoupled telemetry ingestion
 
-- **WHEN** a client sends `POST /api/v1/telemetry/ping` with a valid body **THEN** the Telemetry Service publishes `telemetry.ping.received` and returns `202` without waiting for any worker or database.
-- **WHEN** the same `event_id` is received twice **THEN** Cassandra upserts are idempotent and Redis is not written by the worker.
-- **WHEN** a ping with an older `timestamp` is processed after a newer one **THEN** the stored progress does not change, even at the Cassandra level.
-- **WHEN** the worker processes an event **THEN** all durable state and computed recommendations are written to Cassandra only.
-- **WHEN** Redis loses a key or the cache entry expires **THEN** the Catalog & Home Service rebuilds the view from MongoDB and Cassandra on the next request.
-- **WHEN** the worker fails to process a message 3 times **THEN** the message is moved to `telemetry.progress.dlq`.
-- **WHEN** RabbitMQ does not confirm the publication **THEN** the service returns `503` and the client retries with the same `event_id`.
-- **WHEN** the Recommendation Worker is down **THEN** the API keeps returning `202` and the messages wait in the queue until the worker is back.
+- WHEN a client sends `POST /api/v1/telemetry/ping` with a valid body THEN the Telemetry Service publishes `telemetry.ping.received` and returns `202` without waiting for any worker or database.
+- WHEN the same `event_id` is received twice THEN Cassandra upserts are idempotent and Redis is not written by the worker.
+- WHEN a ping with an older `timestamp` is processed after a newer one THEN the stored progress does not change, even at the Cassandra level.
+- WHEN the worker processes an event THEN all durable state and computed recommendations are written to Cassandra only.
+- WHEN Redis loses a key or the cache entry expires THEN the Catalog & Home Service rebuilds the view from MongoDB and Cassandra on the next request.
+- WHEN the worker fails to process a message 3 times THEN the message is moved to `telemetry.progress.dlq`.
+- WHEN RabbitMQ does not confirm the publication THEN the service returns `503` and the client retries with the same `event_id`.
+- WHEN the Recommendation Worker is down THEN the API keeps returning `202` and the messages wait in the queue until the worker is back.
 
 ### Feature 4: Background processing of Like / Dislike
 
-- **WHEN** a client sends `POST /api/v1/interactions/like` with `LIKE` or `DISLIKE` **THEN** the system returns `202` and publishes `interaction.rating.added`.
-- **WHEN** the worker consumes the event **THEN** it updates the profile preferences and persists computed recommendations in Cassandra.
-- **WHEN** a profile rates the same title twice **THEN** the rating with the newest `timestamp` is the one used.
-- **WHEN** a profile likes a title **THEN** its recommendations include other titles of the same genres that the profile has neither rated nor started.
-- **WHEN** the Catalog & Home Service is unavailable **THEN** the worker persists the event and keeps the previous recommendations.
-- **WHEN** the `rating` value is not `LIKE` or `DISLIKE` **THEN** the system returns `400`.
+- WHEN a client sends `POST /api/v1/interactions/like` with `LIKE` or `DISLIKE` THEN the system returns `202` and publishes `interaction.rating.added`.
+- WHEN the worker consumes the event THEN it updates the profile preferences and persists computed recommendations in Cassandra.
+- WHEN a profile rates the same title twice THEN the rating with the newest `timestamp` is the one used.
+- WHEN a profile likes a title THEN its recommendations include other titles of the same genres that the profile has neither rated nor started.
+- WHEN the Catalog & Home Service is unavailable THEN the worker persists the event and keeps the previous recommendations.
+- WHEN the `rating` value is not `LIKE` or `DISLIKE` THEN the system returns `400`.
 
 ### Feature 5: Traceability of latency in the initial requests
 
-- **WHEN** a request enters the Gateway without `X-Correlation-ID` **THEN** the Gateway generates one and forwards it to every service.
-- **WHEN** a request crosses Gateway, Catalog & Home Service, Redis, MongoDB or Cassandra **THEN** Jaeger shows a single trace with one span per hop and its duration.
-- **WHEN** an event is published **THEN** its headers carry `X-Correlation-ID` and `traceparent`, so the worker spans join the trace of the original request.
-- **WHEN** the Home screen is slow **THEN** an engineer can search Jaeger or Loki by `correlation_id` and find the component that adds the latency.
-- **WHEN** any error response is returned **THEN** its body includes the `correlation_id`.
-
----
+- WHEN a request enters the Gateway without `X-Correlation-ID` THEN the Gateway generates one and forwards it to every service.
+- WHEN a request crosses Gateway, Catalog & Home Service, Redis, MongoDB or Cassandra THEN Jaeger shows a single trace with one span per hop and its duration.
+- WHEN an event is published THEN its headers carry `X-Correlation-ID` and `traceparent`, so the worker spans join the trace of the original request.
+- WHEN the Home screen is slow THEN an engineer can search Jaeger or Loki by `correlation_id` and find the component that adds the latency.
+- WHEN any error response is returned THEN its body includes the `correlation_id`.
 
 ## 6. Open Points for Wave 2
 
 These points are not defined yet and will be settled with an ADR or in this file before the implementation:
 
-- **Durability of interactions and cache refresh (resolved):** Cassandra is authoritative as defined in ADR 006 and amended by ADR 007. Workers do not write to Redis; Catalog rebuilds expiring cache entries on demand from MongoDB and Cassandra.
-- **Programming language of each service:** to be decided in Wave 2. The services implemented so far use Java 21 with Spring Boot.
-- **Rate limit values and token lifetime:** the values shown here (3600 s token) are the initial proposal.
-- **Suggestion engine (resolved):** recommendations are computed by genre affinity from the preference vector and the viewing history, with the genres read from the Catalog & Home Service (ADR 009). Another algorithm can replace it through the `RecommendationStrategy` port.
+- Durability of interactions and cache refresh (resolved): Cassandra is authoritative as defined in ADR 006 and amended by ADR 007. Workers do not write to Redis; Catalog rebuilds expiring cache entries on demand from MongoDB and Cassandra.
+- Programming language of each service: to be decided in Wave 2. The services implemented so far use Java 21 with Spring Boot.
+- Rate limit values and token lifetime: the values shown here (3600 s token) are the initial proposal.
+- Suggestion engine (resolved): recommendations are computed by genre affinity from the preference vector and the viewing history, with the genres read from the Catalog & Home Service (ADR 009). Another algorithm can replace it through the `RecommendationStrategy` port.

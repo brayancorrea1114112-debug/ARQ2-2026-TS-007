@@ -141,3 +141,39 @@ plugins:
     config:
       status_code_metrics: true
       latency_metrics: true
+  # Errors produced by Kong itself (jwt 401, rate-limiting 429, no route 404, upstream down 502/503/504)
+  # use the standard error body of spec.md 1.4. Errors returned by the services are left untouched.
+  - name: post-function
+    config:
+      header_filter:
+        - |
+          local status = kong.response.get_status()
+          if status < 400 or kong.response.get_source() == "service" then
+            return
+          end
+          local errors = {
+            [401] = { "UNAUTHORIZED", "Missing, malformed, invalid or expired token." },
+            [404] = { "NOT_FOUND", "The requested resource does not exist." },
+            [405] = { "METHOD_NOT_ALLOWED", "The method is not allowed for this resource." },
+            [413] = { "PAYLOAD_TOO_LARGE", "The request body is too large." },
+            [429] = { "RATE_LIMITED", "Too many requests. Retry after the time given in Retry-After." },
+            [502] = { "SERVICE_UNAVAILABLE", "A required service is unavailable." },
+            [503] = { "SERVICE_UNAVAILABLE", "A required service is unavailable." },
+            [504] = { "SERVICE_UNAVAILABLE", "A required service did not answer in time." },
+          }
+          local e = errors[status]
+            or (status >= 500 and { "INTERNAL_ERROR", "Unexpected error." })
+            or { "REQUEST_ERROR", "The request could not be processed." }
+          -- Only characters that are safe inside a JSON string are kept from the client-supplied id.
+          local id = kong.response.get_header("X-Correlation-ID") or kong.request.get_header("X-Correlation-ID")
+          id = id and id:gsub("[^%w%-%._:]", "") or ""
+          kong.ctx.shared.standard_error = '{"error":{"code":"' .. e[1] .. '","message":"' .. e[2]
+            .. '","correlation_id":' .. (id ~= "" and ('"' .. id .. '"') or "null") .. '}}'
+          kong.response.set_header("Content-Type", "application/json; charset=utf-8")
+          kong.response.clear_header("Content-Length")
+      body_filter:
+        - |
+          local body = kong.ctx.shared.standard_error
+          if body and kong.response.get_raw_body() ~= nil then
+            kong.response.set_raw_body(body)
+          end
