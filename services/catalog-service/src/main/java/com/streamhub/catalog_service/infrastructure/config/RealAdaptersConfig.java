@@ -1,7 +1,9 @@
 package com.streamhub.catalog_service.infrastructure.config;
 
 import com.streamhub.catalog_service.application.ports.out.HomeViewCachePort;
+import com.streamhub.catalog_service.application.ports.out.TitleGenresPort;
 import com.streamhub.catalog_service.application.ports.out.TitleSummaryPort;
+import com.streamhub.catalog_service.infrastructure.adapters.out.mongo.MongoTitleGenresAdapter;
 import com.streamhub.catalog_service.infrastructure.adapters.out.mongo.MongoTitleSummaryAdapter;
 import com.streamhub.catalog_service.infrastructure.adapters.out.mongo.TrendingCachingTitleSummaryAdapter;
 import com.streamhub.catalog_service.infrastructure.adapters.out.redis.RedisHomeViewAdapter;
@@ -35,6 +37,11 @@ public class RealAdaptersConfig {
     public TitleSummaryPort titleSummaryPort(MongoTemplate mongo, Clock clock,
                                              @Value("${catalog.trending-cache-ttl}") Duration trendingTtl) {
         return new TrendingCachingTitleSummaryAdapter(new MongoTitleSummaryAdapter(mongo), clock, trendingTtl);
+    }
+
+    @Bean
+    public TitleGenresPort titleGenresPort(MongoTemplate mongo) {
+        return new MongoTitleGenresAdapter(mongo);
     }
 
     /** MongoDB waits 30 s to find a server by default; the Home cannot wait that long to answer 503. */

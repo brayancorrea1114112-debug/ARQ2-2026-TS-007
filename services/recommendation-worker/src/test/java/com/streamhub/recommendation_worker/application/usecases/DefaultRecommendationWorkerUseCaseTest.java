@@ -1,6 +1,7 @@
 package com.streamhub.recommendation_worker.application.usecases;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.streamhub.recommendation_worker.application.ports.out.CatalogGenresPort;
 import com.streamhub.recommendation_worker.application.ports.out.EventStorePort;
 import com.streamhub.recommendation_worker.application.ports.out.PreferenceStorePort;
 import com.streamhub.recommendation_worker.application.ports.out.ProgressStorePort;
@@ -17,6 +18,7 @@ import org.mockito.InOrder;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -28,6 +30,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 
 class DefaultRecommendationWorkerUseCaseTest {
@@ -41,6 +44,7 @@ class DefaultRecommendationWorkerUseCaseTest {
     private EventStorePort eventStore;
     private RecommendationStorePort recommendationStore;
     private RecommendationStrategy recommendationStrategy;
+    private CatalogGenresPort catalogGenres;
     private DefaultRecommendationWorkerUseCase useCase;
 
     @BeforeEach
@@ -51,9 +55,11 @@ class DefaultRecommendationWorkerUseCaseTest {
         eventStore = mock(EventStorePort.class);
         recommendationStore = mock(RecommendationStorePort.class);
         recommendationStrategy = mock(RecommendationStrategy.class);
-        when(recommendationStrategy.recommend(anyString(), anyList(), anyList())).thenReturn(List.of("mov_77"));
+        catalogGenres = mock(CatalogGenresPort.class);
+        when(catalogGenres.genresByTitle()).thenReturn(Map.of("mov_77", List.of("Drama")));
+        when(recommendationStrategy.recommend(anyString(), anyMap(), anyList(), anyMap())).thenReturn(List.of("mov_77"));
         useCase = new DefaultRecommendationWorkerUseCase(progressStore, ratingStore, preferenceStore,
-                eventStore, recommendationStore, recommendationStrategy,
+                eventStore, recommendationStore, recommendationStrategy, catalogGenres,
                 new ObjectMapper().findAndRegisterModules());
     }
 
@@ -97,6 +103,26 @@ class DefaultRecommendationWorkerUseCaseTest {
         InOrder order = inOrder(preferenceStore, recommendationStore);
         order.verify(preferenceStore).savePreference(eq("prof_1"), eq("mov_1"), anyDouble(), eq(AT));
         order.verify(recommendationStore).saveRecommendations("prof_1", List.of("mov_77"), AT);
+    }
+
+    @Test
+    void handleRating_usesThePreferencesAndTheCatalogGenres() {
+        when(preferenceStore.findByProfile("prof_1")).thenReturn(Map.of("mov_1", 1.0));
+
+        useCase.handleRating(new RatingAddedEvent(EVENT_ID, "prof_1", "mov_1", "LIKE", AT));
+
+        verify(recommendationStrategy).recommend(eq("prof_1"), eq(Map.of("mov_1", 1.0)), anyList(),
+                eq(Map.of("mov_77", List.of("Drama"))));
+    }
+
+    @Test
+    void whenTheCatalogIsDownTheEventIsPersistedAndThePreviousRecommendationsAreKept() {
+        when(catalogGenres.genresByTitle()).thenThrow(new CatalogGenresPort.CatalogUnavailableException("down", null));
+
+        useCase.handlePing(new PingReceivedEvent(EVENT_ID, "prof_1", "mov_1", null, 60, AT));
+
+        verify(progressStore).saveProgress(new ProgressSnapshot("prof_1", "mov_1", null, 60, AT));
+        verify(recommendationStore, never()).saveRecommendations(anyString(), anyList(), any());
     }
 
     @Test

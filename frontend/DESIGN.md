@@ -47,21 +47,6 @@ Borders only (hairline rules), no card shadows. Hover lifts 2px and the border
 turns blue. Radius scale: 3px tags, 6px (`rounded-hoja`) surfaces, full for
 avatars and play buttons.
 
-## Class recordings
-
-The `Clases` folder is read by the Next.js server, never copied:
-
-- `GET /api/clases` lists the `.mp4` files (id `clase-AAAAMMDD`, date and time
-  parsed from the file name).
-- `GET /api/clases/[id]/video` streams a file with HTTP `Range` support. The id
-  is resolved against the folder listing, so the client never sends a path.
-- Folder: `CLASES_DIR` env var, defaulting to the Drive folder
-  `...\Arquitectura2\Clases`.
-- The player is a native `<video>`; playback pings use the existing telemetry
-  hook with `content_id = clase-AAAAMMDD`, so "Seguir viendo" resumes classes.
-
-These routes are for local development: they have no authentication.
-
 ## Principles
 
 - One memorable element per screen: the hero stage on Home, the date on class

@@ -23,6 +23,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(requests -> requests
                         // /actuator/prometheus is scraped by Prometheus inside the Docker network; Kong does not route it.
                         .requestMatchers("/actuator/health/**", "/actuator/prometheus").permitAll()
+                        // Service-to-service API with public catalog data only; Kong does not route /internal (ADR 009).
+                        .requestMatchers("/internal/v1/titles/genres").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(handling -> handling.authenticationEntryPoint(new RestAuthenticationEntryPoint()))
                 .addFilterBefore(new JwtAuthenticationFilter(tokens), UsernamePasswordAuthenticationFilter.class);

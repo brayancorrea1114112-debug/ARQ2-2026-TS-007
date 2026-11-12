@@ -3,6 +3,7 @@ package com.streamhub.recommendation_worker.application.usecases;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.streamhub.recommendation_worker.application.ports.in.RecommendationWorkerUseCase;
+import com.streamhub.recommendation_worker.application.ports.out.CatalogGenresPort;
 import com.streamhub.recommendation_worker.application.ports.out.EventStorePort;
 import com.streamhub.recommendation_worker.application.ports.out.PreferenceStorePort;
 import com.streamhub.recommendation_worker.application.ports.out.ProgressStorePort;
@@ -14,9 +15,13 @@ import com.streamhub.recommendation_worker.domain.model.PingReceivedEvent;
 import com.streamhub.recommendation_worker.domain.model.ProgressSnapshot;
 import com.streamhub.recommendation_worker.domain.model.RatingAddedEvent;
 import com.streamhub.recommendation_worker.domain.model.RatingSnapshot;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Persists event state and its recommendation result in Cassandra. Redis is populated on demand
@@ -30,6 +35,7 @@ public class DefaultRecommendationWorkerUseCase implements RecommendationWorkerU
 
     private static final String LIKE = "LIKE";
     private static final String DISLIKE = "DISLIKE";
+    private static final Logger log = LoggerFactory.getLogger(DefaultRecommendationWorkerUseCase.class);
 
     private final ProgressStorePort progressStore;
     private final RatingStorePort ratingStore;
@@ -37,6 +43,7 @@ public class DefaultRecommendationWorkerUseCase implements RecommendationWorkerU
     private final EventStorePort eventStore;
     private final RecommendationStorePort recommendationStore;
     private final RecommendationStrategy recommendationStrategy;
+    private final CatalogGenresPort catalogGenres;
     private final ObjectMapper objectMapper;
 
     public DefaultRecommendationWorkerUseCase(ProgressStorePort progressStore,
@@ -45,6 +52,7 @@ public class DefaultRecommendationWorkerUseCase implements RecommendationWorkerU
                                               EventStorePort eventStore,
                                               RecommendationStorePort recommendationStore,
                                               RecommendationStrategy recommendationStrategy,
+                                              CatalogGenresPort catalogGenres,
                                               ObjectMapper objectMapper) {
         this.progressStore = progressStore;
         this.ratingStore = ratingStore;
@@ -52,6 +60,7 @@ public class DefaultRecommendationWorkerUseCase implements RecommendationWorkerU
         this.eventStore = eventStore;
         this.recommendationStore = recommendationStore;
         this.recommendationStrategy = recommendationStrategy;
+        this.catalogGenres = catalogGenres;
         this.objectMapper = objectMapper;
     }
 
@@ -87,10 +96,21 @@ public class DefaultRecommendationWorkerUseCase implements RecommendationWorkerU
         refreshRecommendations(event.profileId(), event.timestamp());
     }
 
+    /**
+     * The event is already persisted at this point. Without genres the previous recommendations are kept instead of
+     * failing the message: retrying would not help while the catalog is down (ADR 009).
+     */
     private void refreshRecommendations(String profileId, Instant generatedAt) {
+        Map<String, List<String>> genres;
+        try {
+            genres = catalogGenres.genresByTitle();
+        } catch (CatalogGenresPort.CatalogUnavailableException e) {
+            log.warn("Keeping the previous recommendations of {}: {}", profileId, e.getMessage());
+            return;
+        }
         recommendationStore.saveRecommendations(profileId,
-                recommendationStrategy.recommend(profileId, ratingStore.findByProfile(profileId),
-                        progressStore.findByProfile(profileId)),
+                recommendationStrategy.recommend(profileId, preferenceStore.findByProfile(profileId),
+                        progressStore.findByProfile(profileId), genres),
                 generatedAt);
     }
 

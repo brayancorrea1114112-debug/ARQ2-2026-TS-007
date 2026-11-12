@@ -18,10 +18,6 @@ export function initials(name: string): string {
 }
 
 export function humanizeId(id: string): string {
-  const clase = /^clase-\d{4}(\d{2})(\d{2})$/.exec(id);
-  if (clase) {
-    return `Clase del ${Number(clase[2])}/${Number(clase[1])}`;
-  }
   const cleaned = id.replace(/^(mov|ser|ep)_/i, "").replace(/[_-]+/g, " ");
   if (/^\d+$/.test(cleaned)) {
     return `Título ${cleaned}`;

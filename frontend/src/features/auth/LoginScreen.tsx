@@ -84,7 +84,7 @@ export function LoginScreen() {
             La noche empieza en casa.
           </p>
           <p className="mt-6 max-w-md text-base leading-relaxed text-tiza/75">
-            Tu cartelera, tu historial y tus clases grabadas, listos antes de
+            Tu cartelera y tu historial, listos antes de
             que te acomodes en el sofá.
           </p>
         </div>

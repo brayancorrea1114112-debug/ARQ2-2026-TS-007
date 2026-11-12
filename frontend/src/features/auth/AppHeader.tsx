@@ -9,7 +9,6 @@ import { Wordmark } from "@/shared/ui/Wordmark";
 
 const NAV = [
   { href: "/home", label: "Cartelera" },
-  { href: "/clases", label: "Clases" },
 ];
 
 export function AppHeader() {

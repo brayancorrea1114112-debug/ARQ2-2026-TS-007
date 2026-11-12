@@ -149,7 +149,7 @@ JSON list of the profile's latest playback positions. It is cached separately fr
 
 ### 2.8 ProfilePreferences (Cassandra, table `prefs_by_profile`)
 
-Durable preference vector updated by the Recommendation Worker. It is not projected into Redis.
+Durable preference vector updated by the Recommendation Worker. It is not projected into Redis. It is the input of the suggestion engine (ADR 009): each rated title weighs +1 (LIKE) or -1 (DISLIKE) on its genres.
 
 ### 2.9 Interactions DB (Cassandra, keyspace `streamhub`)
 
@@ -399,6 +399,32 @@ Responses:
 { "event_id": "a3b1b8d4-2c9f-4a53-b2f5-0a5c8e4d7a90", "status": "ACCEPTED" }
 ```
 
+### 3.7 GET /internal/v1/titles/genres (internal)
+
+Genres of every catalog title, read by the Recommendation Worker to compute suggestions (ADR 009).
+
+- **Authentication:** none. Kong does not route `/internal`, so it is only reachable inside the Docker network. It only returns public catalog data.
+- **Service:** Catalog & Home Service
+- **Consumer:** Recommendation Worker, which keeps the answer in memory for 5 minutes
+
+Responses:
+
+| Status | Description |
+|---|---|
+| 200 | Genres of every title. A title without genres has an empty list |
+| 503 | MongoDB is unavailable (`SERVICE_UNAVAILABLE`) |
+
+200 example:
+
+```json
+{
+  "titles": [
+    { "content_id": "mov_8832", "genres": ["Drama", "Thriller"] },
+    { "content_id": "mov_77", "genres": ["Thriller"] }
+  ]
+}
+```
+
 ---
 
 ## 4. Asynchronous Events
@@ -494,6 +520,8 @@ Delivery guarantees:
 
 Workers write only to Cassandra. If Cassandra is unavailable the message is retried; Redis remains unchanged until the Catalog & Home Service rebuilds a cache miss.
 
+To compute the recommendations the worker reads the genres of the catalog (3.7) and keeps them in memory. If the catalog is unavailable, the event is still persisted and the previous recommendations are kept (ADR 009).
+
 ---
 
 ## 5. Requirements and Scenarios
@@ -532,6 +560,8 @@ Workers write only to Cassandra. If Cassandra is unavailable the message is retr
 - **WHEN** a client sends `POST /api/v1/interactions/like` with `LIKE` or `DISLIKE` **THEN** the system returns `202` and publishes `interaction.rating.added`.
 - **WHEN** the worker consumes the event **THEN** it updates the profile preferences and persists computed recommendations in Cassandra.
 - **WHEN** a profile rates the same title twice **THEN** the rating with the newest `timestamp` is the one used.
+- **WHEN** a profile likes a title **THEN** its recommendations include other titles of the same genres that the profile has neither rated nor started.
+- **WHEN** the Catalog & Home Service is unavailable **THEN** the worker persists the event and keeps the previous recommendations.
 - **WHEN** the `rating` value is not `LIKE` or `DISLIKE` **THEN** the system returns `400`.
 
 ### Feature 5: Traceability of latency in the initial requests
@@ -551,4 +581,4 @@ These points are not defined yet and will be settled with an ADR or in this file
 - **Durability of interactions and cache refresh (resolved):** Cassandra is authoritative as defined in ADR 006 and amended by ADR 007. Workers do not write to Redis; Catalog rebuilds expiring cache entries on demand from MongoDB and Cassandra.
 - **Programming language of each service:** to be decided in Wave 2. The services implemented so far use Java 21 with Spring Boot.
 - **Rate limit values and token lifetime:** the values shown here (3600 s token) are the initial proposal.
-- **Suggestion engine:** the default strategy uses persisted interaction affinity (likes, dislikes and watch history) because the catalog is owned by another module. Genre-based weighting can replace it through the `RecommendationStrategy` port.
+- **Suggestion engine (resolved):** recommendations are computed by genre affinity from the preference vector and the viewing history, with the genres read from the Catalog & Home Service (ADR 009). Another algorithm can replace it through the `RecommendationStrategy` port.

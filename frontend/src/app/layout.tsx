@@ -27,7 +27,7 @@ export const metadata: Metadata = {
     template: "%s — StreamHub",
   },
   description:
-    "StreamHub reúne a la familia frente a la pantalla: perfiles, historial, recomendaciones y tus clases grabadas.",
+    "StreamHub reúne a la familia frente a la pantalla: perfiles, historial y recomendaciones.",
 };
 
 export default function RootLayout({

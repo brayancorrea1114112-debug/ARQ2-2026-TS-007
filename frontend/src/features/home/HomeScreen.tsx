@@ -6,7 +6,6 @@ import { useEffect } from "react";
 import { AppHeader } from "@/features/auth/AppHeader";
 import { useSessionStore } from "@/features/auth/session";
 import { useAuthFailure } from "@/features/auth/useAuthFailure";
-import { ClasesRail } from "@/features/clases/ClasesRail";
 import { ContinueRail } from "@/features/home/ContinueRail";
 import { TitleRail } from "@/features/home/TitleRail";
 import { getHome } from "@/features/home/api";
@@ -113,7 +112,6 @@ export function HomeScreen() {
         ) : (
           <>
             <ContinueRail home={home} />
-            <ClasesRail home={home} />
             <TitleRail
               heading="Recomendado para ti"
               titles={home.recommended}
@@ -128,8 +126,6 @@ export function HomeScreen() {
             ))}
           </>
         )}
-
-        {!hasContent ? <ClasesRail home={home} /> : null}
 
         <HomeFooter home={home} />
       </main>

@@ -6,9 +6,6 @@ import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useSessionStore } from "@/features/auth/session";
 import { useAuthFailure } from "@/features/auth/useAuthFailure";
-import { claseVideoUrl, type Clase } from "@/features/clases/api";
-import { claseDateParts, isClaseId } from "@/features/clases/format";
-import { useClases } from "@/features/clases/useClases";
 import { getHome } from "@/features/home/api";
 import {
   continueWatchingFor,
@@ -129,18 +126,6 @@ export function WatchScreen() {
       ? fromQuery
       : (resume?.progress_seconds ?? 0);
 
-  if (isClaseId(contentId)) {
-    return (
-      <Stage>
-        <ClaseWatch
-          contentId={contentId}
-          token={token as string}
-          initialProgress={initialProgress}
-        />
-      </Stage>
-    );
-  }
-
   const title = titleOrStub(home, contentId);
 
   return (
@@ -153,132 +138,6 @@ export function WatchScreen() {
         initialProgress={initialProgress}
       />
     </Stage>
-  );
-}
-
-function ClaseWatch({
-  contentId,
-  token,
-  initialProgress,
-}: {
-  contentId: string;
-  token: string;
-  initialProgress: number;
-}) {
-  const clasesQuery = useClases();
-  const clase = clasesQuery.data?.find((item) => item.id === contentId);
-
-  if (clasesQuery.isLoading) {
-    return (
-      <>
-        <PlayerTopBar backHref="/clases" backLabel="Volver a las clases" />
-        <ScreenLoader label="Preparando la clase" />
-      </>
-    );
-  }
-
-  if (!clase) {
-    return (
-      <>
-        <PlayerTopBar backHref="/clases" backLabel="Volver a las clases" />
-        <main id="main" className="mx-auto w-full max-w-3xl px-6 py-16">
-          <h1 className="titular text-5xl text-tiza">
-            No encontramos esta clase
-          </h1>
-          <p className="mt-4 max-w-md text-sm text-tiza/70">
-            Puede que la grabación ya no esté en la carpeta de clases.
-          </p>
-          <Link
-            href="/clases"
-            className={buttonStyles({ variant: "tiza", className: "mt-6" })}
-          >
-            Ver todas las clases
-          </Link>
-        </main>
-      </>
-    );
-  }
-
-  return (
-    <ClasePlayer
-      clase={clase}
-      token={token}
-      initialProgress={initialProgress}
-    />
-  );
-}
-
-function ClasePlayer({
-  clase,
-  token,
-  initialProgress,
-}: {
-  clase: Clase;
-  token: string;
-  initialProgress: number;
-}) {
-  const [progress, setProgress] = useState(initialProgress);
-  const [playing, setPlaying] = useState(false);
-
-  const telemetry = usePlaybackTelemetry({
-    token,
-    contentId: clase.id,
-    playing,
-    progressSeconds: progress,
-  });
-
-  const parts = claseDateParts(clase.date, clase.time);
-
-  return (
-    <main id="main" className="flex flex-1 flex-col">
-      <PlayerTopBar
-        backHref="/clases"
-        backLabel="Volver a las clases"
-        note={`Clase ${clase.session}`}
-      />
-
-      <div className="mx-auto w-full max-w-6xl px-6 py-8">
-        <video
-          src={claseVideoUrl(clase.id)}
-          controls
-          playsInline
-          preload="metadata"
-          aria-label={`Video de la clase ${clase.session}`}
-          className="aspect-video w-full rounded-hoja bg-black"
-          onLoadedMetadata={(event) => {
-            if (initialProgress > 0) {
-              event.currentTarget.currentTime = initialProgress;
-            }
-          }}
-          onTimeUpdate={(event) =>
-            setProgress(Math.floor(event.currentTarget.currentTime))
-          }
-          onPlay={() => setPlaying(true)}
-          onPause={() => setPlaying(false)}
-          onEnded={() => setPlaying(false)}
-        />
-
-        <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className="text-sm font-medium text-tiza/70">{clase.title}</p>
-            <h1 className="titular mt-2 text-5xl text-tiza sm:text-6xl">
-              Clase {clase.session}
-            </h1>
-            <p className="mt-3 text-sm text-tiza/70">
-              {parts.long}, {parts.time}
-            </p>
-          </div>
-          <TelemetryBadge status={telemetry.status} />
-        </div>
-
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-tiza/15 pt-5">
-          <RatingButtons contentId={clase.id} tone="dark" />
-          <p className="text-xs text-tiza/60 tabular-nums">
-            Vas en {formatTime(progress)}
-          </p>
-        </div>
-      </div>
-    </main>
   );
 }
 
@@ -429,20 +288,9 @@ function Player({
   );
 }
 
-function PlayerTopBar({
-  contentId,
-  backHref,
-  backLabel,
-  note,
-}: {
-  contentId?: string;
-  backHref?: string;
-  backLabel?: string;
-  note?: string;
-}) {
-  const href = backHref ?? (contentId ? `/title/${contentId}` : "/home");
-  const label =
-    backLabel ?? (contentId ? "Volver al detalle" : "Volver al inicio");
+function PlayerTopBar({ contentId }: { contentId?: string }) {
+  const href = contentId ? `/title/${contentId}` : "/home";
+  const label = contentId ? "Volver al detalle" : "Volver al inicio";
 
   return (
     <div className="border-b border-tiza/15">
@@ -455,7 +303,7 @@ function PlayerTopBar({
         </Link>
         <Wordmark className="text-2xl" href="/home" tone="dark" />
         <span className="hidden text-xs text-tiza/60 sm:inline">
-          {note ?? "Vista previa del reproductor"}
+          Vista previa del reproductor
         </span>
       </div>
     </div>

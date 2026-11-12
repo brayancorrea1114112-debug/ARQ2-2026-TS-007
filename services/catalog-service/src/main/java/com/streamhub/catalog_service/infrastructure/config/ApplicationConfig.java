@@ -2,8 +2,10 @@ package com.streamhub.catalog_service.infrastructure.config;
 
 import com.streamhub.catalog_service.application.ports.out.HomeViewCachePort;
 import com.streamhub.catalog_service.application.ports.out.InteractionsReadPort;
+import com.streamhub.catalog_service.application.ports.out.TitleGenresPort;
 import com.streamhub.catalog_service.application.ports.out.TitleSummaryPort;
 import com.streamhub.catalog_service.application.usecases.HomeService;
+import com.streamhub.catalog_service.application.usecases.TitleGenresService;
 import com.streamhub.catalog_service.infrastructure.security.JwtTokenVerifier;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -35,5 +37,10 @@ public class ApplicationConfig {
                                    @Value("${catalog.home-cache-ttl:15m}") Duration homeTtl,
                                    @Value("${catalog.continue-watching-cache-ttl:24h}") Duration continueWatchingTtl) {
         return new HomeService(homeViews, titles, interactions, clock, homeTtl, continueWatchingTtl);
+    }
+
+    @Bean
+    public TitleGenresService titleGenresService(TitleGenresPort genres) {
+        return new TitleGenresService(genres);
     }
 }
