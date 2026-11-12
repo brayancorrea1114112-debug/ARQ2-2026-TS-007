@@ -144,6 +144,9 @@ services:
   # mensajes
   rabbitmq:
     container_name: rabbitmq-arquitectura2
+    # RabbitMQ keeps its data in a folder named after the hostname. A fixed hostname keeps users,
+    # queues and pending messages when the container is recreated.
+    hostname: rabbitmq
     image: rabbitmq:3-management
     env_file:
       - ./infra/rabbitmq/.env
